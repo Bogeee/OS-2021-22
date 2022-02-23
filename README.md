@@ -61,7 +61,7 @@ If you have the `source` command, run
 source cfg/<conf_file>.cfg
 make run
 ```
-Otherwise, you have to manually append the contents of a configuration file that you can find in the `cfg/` directory into `~/.shrc` or `~/.bashrc` or `~/.zshrc` file and then run the following command (Maybe you must to restart the terminal in this case, I haven't tried because i have the `source` utility).
+Otherwise, you have to manually append the contents of a configuration file that you can find in the `cfg/` directory into `~/.shrc` or `~/.bashrc` or `~/.zshrc` file and then run the following command (Maybe you must restart the terminal in this case).
 ```sh
 make run
 ```
