@@ -8,6 +8,8 @@
 #include <string.h> /* strerror */
 #endif
 
+#define _BASHPRINT_H
+
 /* ANSI Color Standard */
 /* Docs -> https://talyian.github.io/ansicolors/ */
 #define COLOR_RED      "\x1b[31m"

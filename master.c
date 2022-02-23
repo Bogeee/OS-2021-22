@@ -67,9 +67,24 @@ void get_configuration()
 		if(env_var_val = getenv(conf_names[i])){
 			errno = 0;
 			conf[i] = strtoul(env_var_val, &chk_strtol_err, 10);
-			if((conf[i] == 0 && (errno == EINVAL || errno == ERANGE)) || env_var_val == chk_strtol_err){
+			/* check conversion */
+			if((conf[i] == 0 && (errno == EINVAL || errno == ERANGE)) || env_var_val == chk_strtol_err) {
 				fprintf(stderr, "[%sERROR%s] Could not convert env variable %s to an unsigned long\n",
 						COLOR_RED, COLOR_FLUSH, conf_names[i]);
+				exit(EXIT_FAILURE);
+			}
+			/* check valid number */
+			if(i == SO_MAX_TRANS_GEN_NSEC && conf[SO_MAX_TRANS_GEN_NSEC] < conf[SO_MIN_TRANS_GEN_NSEC]) {
+				MSG_ERR("SO_MAX_TRANS_GEN_NSEC is lower than SO_MIN_TRANS_GEN_NSEC!");
+				exit(EXIT_FAILURE);
+			} else if(i == SO_MAX_TRANS_PROC_NSEC && conf[SO_MAX_TRANS_PROC_NSEC] < conf[SO_MIN_TRANS_PROC_NSEC]) {
+				MSG_ERR("SO_MAX_TRANS_PROC_NSEC is lower than SO_MIN_TRANS_PROC_NSEC!");
+				exit(EXIT_FAILURE);
+			} else if(i == SO_TP_SIZE && conf[SO_TP_SIZE] <= SO_BLOCK_SIZE) {
+				MSG_ERR("SO_TP_SIZE is not bigger than SO_BLOCK_SIZE!");
+				exit(EXIT_FAILURE);
+			} else if (i == SO_REWARD && (conf[SO_REWARD] < 0 || conf[SO_REWARD] > 100)) {
+				MSG_ERR("SO_REWARD is out range [0-100]!");
 				exit(EXIT_FAILURE);
 			}
 		} else {
