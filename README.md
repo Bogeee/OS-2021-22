@@ -52,6 +52,10 @@ To clean the output of the `make` utility, you can run `make clean` which will r
 ```sh
 make clean
 ```
+You can also try more complex configurations:
+```sh
+make all debug=1 cfg=2
+```
 
 ### Executing program
 Before running the program, you must load the environment variables that will be checked at run time. To do so, we'll use the `source` utility from `bash`, `zsh`, ..., but unfortunately it doesn't exist in the `sh` shell. 
@@ -69,7 +73,9 @@ make run
 ## Implementation choices
 
 ### Getting the configuration parameters
-TODO
+All the runtime configuration parameters are retrieved from the environment variables, which must be loaded before running the master program.
+
+The function responsible for this is `get_configuration()` in the `master.c` file.
 
 ## Author
 
@@ -80,10 +86,10 @@ TODO
 This project is licensed under the MIT License - see the LICENSE.md file for details
 
 ## Acknowledgments
-
+<!--
 I love to build projects in C but my passion is to break programs. In this project I'll try my best to follow the SEI CERT C Coding Standard which defines the best practices to avoid or mitigate all sorts of vulnerabilities such as Stack or Heap based BOF, UAF, memory corruption and others.
 
-* [SEI CERT C Coding Standard](https://wiki.sei.cmu.edu/confluence/display/c/SEI+CERT+C+Coding+Standard)
+* [SEI CERT C Coding Standard](https://wiki.sei.cmu.edu/confluence/display/c/SEI+CERT+C+Coding+Standard)-->
 
 I'm coding in C, so there is no reason why i shouldn't follow the Linux Kernel coding style. 
 

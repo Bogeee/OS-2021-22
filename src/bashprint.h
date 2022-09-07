@@ -8,6 +8,7 @@
 #include <string.h> /* strerror */
 #endif
 
+#ifndef _BASHPRINT_H
 #define _BASHPRINT_H
 
 /* ANSI Color Standard */
@@ -27,18 +28,4 @@
 #define MSG_INFO(msg)     printf("[INFO] %s\n", msg);
 #define MSG_IO(msg)       printf("[%sI/O%s] %s\n",COLOR_MAGENTA, COLOR_FLUSH, msg);
 
-
-/*
-void test()
-{
-	printf("Questa stringa e' per vedere un output a caso\n");
-	MSG_INFO("Calling syscall fork()");
-	MSG_OK("Child process created - PID: <pid>");
-	MSG_INFO("Calling syscall fork()");
-	MSG_ERR("fork() unknown error");
-	MSG_DEBUG("Reached line 45 of file main.c");
-	MSG_WARNING("Parent process waits until the child process terminate");
-	MSG_INFO("Calling syscall fork()");
-	MSG_IO("Child process wants to read from file conf.dat");
-}
-*/
+#endif /* _BASHPRINT_H */

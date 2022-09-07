@@ -4,10 +4,18 @@
 #include <stdlib.h>     /* atoi(), calloc(), free(), getenv() */ 
 #include <limits.h>     /* Limits of numbers macros */ 
 #include <string.h>     /* stderr */
+#include <signal.h>		/* set_handler(), */
 #include <errno.h>      /* errno */
+#include "common.h"     /* set_handler */
 #include "bashprint.h"  /* Pretty print messages to screen */
 
 #define N_RUNTIME_CONF_VALUES 13
+
+/* ----- PROTOTYPES ----- */
+void shutdown();
+void get_configuration();
+void sigterm_handler(int signum);
+
 
 /* RUN TIME CONFIGURATION VALUES */
 unsigned long conf[N_RUNTIME_CONF_VALUES] = {0};
@@ -22,14 +30,17 @@ char conf_names[N_RUNTIME_CONF_VALUES][22+1] = {
 			"SO_MIN_TRANS_GEN_NSEC", "SO_MAX_TRANS_GEN_NSEC", "SO_RETRY",
 			"SO_TP_SIZE", "SO_MIN_TRANS_PROC_NSEC", "SO_MAX_TRANS_PROC_NSEC", 
 			"SO_SIM_SEC", "SO_FRIENDS_NUM", "SO_HOPS"
-		    };
+		};
 
-void get_configuration();
-
-int main (int argc, char ** argv)
+int main (/*int argc, char ** argv*/ void)
 {
 	/*system("clear"); */
 	get_configuration();
+
+	set_handler(SIGTERM, &sigterm_handler);
+	set_handler(SIGINT, &sigterm_handler);
+
+
 	return 0;
 }
 
@@ -88,7 +99,8 @@ void get_configuration()
 				exit(EXIT_FAILURE);
 			}
 		} else {
-			fprintf(stderr, "[%sERROR%s] Undefined environment variable %s. Make sure to load env. variables first!\n",
+			fprintf(stderr, "[%sERROR%s] Undefined environment variable %s. Make sure to load env. variables first!\n"
+							"        Example: source cfg/custom.cfg\n",
 						COLOR_RED, COLOR_FLUSH, conf_names[i]);
 			exit(EXIT_FAILURE);
 		}
@@ -110,5 +122,17 @@ void get_configuration()
 	printf("|    SO_HOPS                   |    %10u    |\n", conf[i]);
 	printf("---------------------------------------------------\n");
 	MSG_OK("Running time parameters retrieved successfully!");
+	printf("Press any button to continue...");
+	getchar();
 #endif
+}
+
+void sigterm_handler(int signum) {
+	fprintf(stdout, "[%sINFO%s] Ricevuto il segnale %s, arresto la simulazione\n",
+				COLOR_YELLOW, COLOR_FLUSH, strsignal(signum));
+	shutdown();
+}
+
+void shutdown(){
+	exit(EXIT_SUCCESS);
 }

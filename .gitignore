@@ -1,0 +1,6 @@
+# IDE stuff
+.vscode
+
+# Object/Binary files
+bin/*
+build/*
