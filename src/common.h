@@ -1,74 +1,109 @@
+#ifndef _STDLIB_H
+#include <stdlib.h>
+#endif
+#ifndef _SIGNAL_H
+#include <signal.h>
+#endif
+#ifndef _TIME_H
+#include <time.h>
+#endif
+#ifndef _SYS_TYPES_H
+#include <sys/types.h>
+#endif
+#ifndef _SYS_WAIT_H
+#include <sys/wait.h>
+#endif
+#ifndef _SYS_IPC_H
+#include <sys/ipc.h>
+#endif
+#ifndef _SYS_SEM_H
+#include <sys/sem.h>
+#endif
+#ifndef _SYS_SHM_H
+#include <sys/shm.h>
+#endif
+#ifndef _SYS_MSG_H
+#include <sys/msg.h>
+#endif
+
 #ifndef __COMMON_H
-#define __COMMON_H
+#define __COMMON_H 1
 
-/*
-#define SEM_KEY 117
-#define START_SEM 0
-#define MUTEX_SEM 1
-#define ROOM_EMPTY_SEM 2
-#define TURNSTILE_SEM 3
+/*** IPC Keys ***/
 
-#define SAFE_KILL_SEM_KEY 34287
-#define SHM_KEY 43972
-#define MSG_KEY 23477
-#define MNG_MSG_KEY 32648
+#define SHM_USER_KEY 1004
+#define SHM_NODE_KEY 1826
+#define SHM_LIBROMASTRO_KEY 9001
+#define SHM_ENV_KEY 98120
 
-#define TYPE_A_PATH "./tipo_a"
-#define TYPE_B_PATH "./tipo_b"
+#define SEM_USER_KEY 76543
+#define SEM_NODE_KEY 2009
+#define SEM_LIBROMASTRO_KEY 65432
+#define SEM_SIM_KEY 82141
 
-typedef struct {
-	pid_t pid;
-	char tipo;
-	unsigned long genoma;
-} individuo;
+#define MSG_TRANS_KEY 62132
 
-typedef struct {
-	long mtype;
-	char response;
-} responseFromA;
+union semun
+{
+    int val;
+    struct semid_ds *buf;
+    unsigned short *array;
+#if defined(__linux__)
+    struct seminfo *__buf;
+#endif
+};
 
-typedef struct {
-	long mtype;
-	pid_t pid;
-	unsigned long genome;
-	unsigned long uid;
-} requestFromB;
+/*** Custom Data Structures ***/
 
-typedef struct {
-	long mtype;
-	pid_t partner_pid;
-} messageToManager;
+/* Users type */
+typedef struct
+{
+    int pid;
+    int budget;
+} user;
 
-#define RESPONSE_SIZE (sizeof(char))
-#define REQUEST_SIZE (sizeof(pid_t) + sizeof(unsigned long) * 2)
-#define MESSAGE_TO_MANAGER_SIZE (sizeof(pid_t))
-*/
+/* Ndoes type */
+typedef struct
+{
+    int pid;
+    int reward;
+} node;
 
-/* Riduce di 1 il valore del semaforo (acquisisce risorsa) */
-int sem_wait(int s_id, unsigned short sem_num) ;
+/* Transaction type */
+typedef struct
+{
+    double timestamp;
+    int sender;
+    int receiver;
+    int quantity;
+    int reward;
+} transaction;
 
-/* Aumenta di 1 il valore del semaforo (rilascia risorsa) */
-int sem_signal(int s_id, unsigned short sem_num);
+/*** Semaphore Management ***/
 
-/* Esegue una semop */
-int sem_cmd(int s_id, unsigned short sem_num, short sem_op, short sem_flg);
+int initSemAvailable(int, int);
+int initSemInUse(int, int);
+int reserveSem(int, int);
+int releaseSem(int, int);
+int waitSem(int, int);
+int initSemSimulation(int, int, int, int);
 
-/* Blocca i segnali elencati tra gli argomenti */
-/* Restituisce la vecchia maschera */
+/*** Signals Management ***/
+
 sigset_t block_signals(int count, ...);
-
-/* Sblocca i segnali elencati tra gli argomenti */
-/* Restituisce la vecchia maschera */
 sigset_t unblock_signals(int count, ...);
-
-/* 
- * Imposta una maschera per i segnali, usata per reimpostare una
- * vecchia maschera ritornata da block_signals
- */
 void reset_signals(sigset_t old_mask);
-
-/* Imposta un nuovo handler per il segnale sig */
-/* Ritorna il vecchio struct sigaction */
 struct sigaction set_handler(int sig, void (*func)(int));
+
+/*** Shared Memory Management ***/
+
+void initReadFromShm(int);
+void endReadFromShm(int);
+void initWriteInShm(int);
+void endWriteInShm(int);
+
+/*** Random Number Utility ***/
+
+int randomNum(int, int);
 
 #endif /* __COMMON_H */

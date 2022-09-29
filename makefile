@@ -52,7 +52,7 @@ COMMON_DEPS = $(INCLUDES) makefile
 ###############################################
 # all, clean, run, debug, conf1, conf2, conf3 #
 ###############################################
-all: check_folders bin/master
+all: check_folders bin/master bin/node bin/user
 
 build/%.o: src/%.c $(COMMON_DEPS)
 	$(CC) $(CFLAGS) $(PROJ_CONF) -c $< -o $@ $(LDFLAGS)
@@ -60,25 +60,17 @@ build/%.o: src/%.c $(COMMON_DEPS)
 bin/master: build/master.o build/common.o $(COMMON_DEPS)
 	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/master build/master.o build/common.o $(LDFLAGS)
 
+bin/node: build/node.o $(COMMON_DEPS)
+	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/node build/node.o $(LDFLAGS)
+
+bin/user: build/user.o $(COMMON_DEPS)
+	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/user build/user.o $(LDFLAGS)
+
 clean:
 	rm -f build/* bin/*
 
 run: all
 	./bin/master
-	
-# Debug with custom settings
-debug: 
-	$(CC) $(CFLAGS_DBG) $(PROJ_CONF) $(TARGET_SOURCE) -o $(TARGET)
-
-# Use project-defined configurations
-conf1: 
-	$(CC) $(CFLAGS) $(CONF1) $(TARGET_SOURCE) -o $(TARGET)
-
-conf2: 
-	$(CC) $(CFLAGS) $(CONF2) $(TARGET_SOURCE) -o $(TARGET)
-
-conf3: 
-	$(CC) $(CFLAGS) $(CONF3) $(TARGET_SOURCE) -o $(TARGET)
 
 check_folders: 
 	mkdir -p build
