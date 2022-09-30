@@ -13,7 +13,7 @@
 
 /*
     TODO:
-    -Riorganizzazione header leggere configurazione e mettere su sharedmemory, define solo di cose necessarie, chiavi condivise su header file.h
+    -FATTO : Riorganizzazione header leggere configurazione e mettere su sharedmemory, define solo di cose necessarie, chiavi condivise su header file.h
     -Id code di messaggi una per nodo dove andranno caricate le transazioni da immettere nel libro mastro scartando quelle in eccesso, creazione transaction pool
     -Modularizzare con l'utilizzo di exec_ve utilizzando la consegna come divisione in moduli (utenti, nodi, terminazione etc..)
     -Creazione transazioni, metterle nella coda estratta a caso e continuare il ciclo
