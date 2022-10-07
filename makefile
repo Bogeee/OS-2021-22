@@ -57,14 +57,14 @@ all: check_folders bin/master bin/node bin/user
 build/%.o: src/%.c $(COMMON_DEPS)
 	$(CC) $(CFLAGS) $(PROJ_CONF) -c $< -o $@ $(LDFLAGS)
 
-bin/master: build/master.o build/common.o $(COMMON_DEPS)
+bin/master: build/common.o build/master.o $(COMMON_DEPS)
 	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/master build/master.o build/common.o $(LDFLAGS)
 
-bin/node: build/node.o $(COMMON_DEPS)
-	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/node build/node.o $(LDFLAGS)
+bin/node: build/node.o build/common.o $(COMMON_DEPS)
+	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/node build/node.o build/common.o $(LDFLAGS)
 
-bin/user: build/user.o $(COMMON_DEPS)
-	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/user build/user.o $(LDFLAGS)
+bin/user: build/user.o build/common.o $(COMMON_DEPS)
+	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/user build/user.o build/common.o $(LDFLAGS)
 
 clean:
 	rm -f build/* bin/*
