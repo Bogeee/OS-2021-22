@@ -124,7 +124,7 @@ enum conf_index {
 	SO_SIM_SEC, SO_FRIENDS_NUM, SO_HOPS
 };
 
-void get_configuration();
+int get_configuration();
 
 #endif /* __COMMON_H */
 

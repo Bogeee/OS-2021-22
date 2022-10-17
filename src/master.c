@@ -1,8 +1,6 @@
 #define _GNU_SOURCE
 
-
-#include "common.h"     /* set_handler */
-
+#include "common.h" /* set_handler */
 
 /*
     TODO:
@@ -19,13 +17,11 @@
 /* ----- PROTOTYPES ----- */
 
 void sigterm_handler(int signum);
-void shutdown(int status);
+void shutdown();
 
-
-
-int shmConfig; /* ID shmem configurazione */
-int shmUsers;  /* ID shmem users data */
-int shmNodes;  /* ID shmem nodes data */
+int shmConfig;       /* ID shmem configurazione */
+int shmUsers;        /* ID shmem users data */
+int shmNodes;        /* ID shmem nodes data */
 int shmLibroMastro;  /* ID shmem Libro Mastro */
 int msgTransactions; /* ID msg queue transactions */
 user *shmUsersArray; /* ID shmem Array of User PIDs */
@@ -39,70 +35,85 @@ transaction (*shmLibroMastroMatrix)[SO_REGISTRY_SIZE]; /* ID shmem Array of tran
  * 1 mutex
  * 2 readcount
  * **/
-int semUsers;  /* Semaphore for shmem access on the Array of User PIDs */
-int semNodes;  /* Semaphore for shmem access on the Array of Node PIDs */
-int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
-int semSimulazione;  /* Semaphore for the simulation */
+int semUsers;       /* Semaphore for shmem access on the Array of User PIDs */
+int semNodes;       /* Semaphore for shmem access on the Array of Node PIDs */
+int semLibroMastro; /* Semaphore for shmem access on the Libro Mastro */
+int semSimulazione; /* Semaphore for the simulation */
 
-int main (int argc, char ** argv)
+int main(int argc, char **argv)
 {
-    unsigned long *conf; /* Array of conf. values attached to shmem */
+    unsigned long *conf;   /* Array of conf. values attached to shmem */
     pid_t child_pid, wpid; /* child_pid is used for the fork, wpid unused */
 
     /*** Certe robe vanno poi spostate in user.c e node.c, ora le metto per essere
      * standard C89 compliant ***/
-    int status = 0; /*  */
-    int fails = 0; /* used with SO_RETRY */
-    int bilancio; /*  */
-    transaction newTr; /* new transaction */
+    int status = 0;     /*  */
+    int fails = 0;      /* used with SO_RETRY */
+    int bilancio;       /*  */
+    transaction newTr;  /* new transaction */
     int randomReceiver; /* Random user */
-    int randomNode; /* Random node */
+    int randomNode;     /* Random node */
     int randomQuantity; /* Random quantity for the transaction */
-    int nodeReward; /* Transaction reward */
-    int i=0, j=0, k=0;
+    int nodeReward;     /* Transaction reward */
+    int i = 0, j = 0, k = 0;
 
-	/*system("clear"); */
+    /*system("clear"); */
     /* Creating the shared memory segment */
-    shmConfig = shmget(SHM_ENV_KEY, sizeof(unsigned long) * N_RUNTIME_CONF_VALUES, 
-							IPC_CREAT | IPC_EXCL | 0666);
-    if (shmConfig == -1){
-		MSG_ERR("main: shmConfig, error while creating the shared memory segment.");
+    shmConfig = shmget(SHM_ENV_KEY, sizeof(unsigned long) * N_RUNTIME_CONF_VALUES,
+                       IPC_CREAT | IPC_EXCL | 0666);
+    if (shmConfig == -1)
+    {
+        MSG_ERR("main: shmConfig, error while creating the shared memory segment.");
         perror("\tshmConfig");
-		shutdown(EXIT_FAILURE);
-	}
-	
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
+
     conf = shmat(shmConfig, NULL, 0);
 
-	/* Gets conf from Env variables, Writes configuration to shared memory */
-	get_configuration(conf);
-	
+    /* Gets conf from Env variables, Writes configuration to shared memory */
+    if (get_configuration(conf) == 0)
+    {
+        MSG_ERR("main: get_configuration, error while loading source file.");
+        shutdown();
+        exit(EXIT_FAILURE);
+    };
+
     semUsers = semget(SEM_USER_KEY, 3, IPC_CREAT | 0666);
-    if(semUsers == -1){
-		MSG_ERR("main: semUsers, error while creating the semaphore.");
+    if (semUsers == -1)
+    {
+        MSG_ERR("main: semUsers, error while creating the semaphore.");
         perror("\tsemUsers");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
-	semNodes = semget(SEM_NODE_KEY, 3, IPC_CREAT | 0666);
-    if(semNodes == -1){
-		MSG_ERR("main: semNodes, error while creating the semaphore.");
+    semNodes = semget(SEM_NODE_KEY, 3, IPC_CREAT | 0666);
+    if (semNodes == -1)
+    {
+        MSG_ERR("main: semNodes, error while creating the semaphore.");
         perror("\tsemNodes");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
-	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
-    if(semLibroMastro == -1){
-		MSG_ERR("main: semLibroMastro, error while creating the semaphore.");
+    semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
+    if (semLibroMastro == -1)
+    {
+        MSG_ERR("main: semLibroMastro, error while creating the semaphore.");
         perror("\tsemLibroMastro");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
     semSimulazione = semget(SEM_SIM_KEY, 1, IPC_CREAT | 0666);
-    if(semSimulazione == -1){
-		MSG_ERR("main: semSimulazione, error while creating the semaphore.");
+    if (semSimulazione == -1)
+    {
+        MSG_ERR("main: semSimulazione, error while creating the semaphore.");
         perror("\tsemSimulazione");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
     /* Inizializzazione semafori */
     /*if(initSemAvailable(semUsers, 0) == -1)
@@ -129,56 +140,66 @@ int main (int argc, char ** argv)
     if( initSemSimulation(semSimulazione, 0) == -1)
         perror("initSemSimulation(semSimulazione, 0) ");*/
 
-	initSemAvailable(semUsers, 0);
+    initSemAvailable(semUsers, 0);
     initSemAvailable(semUsers, 1);
     initSemInUse(semUsers, 2);
 
     initSemAvailable(semNodes, 0);
     initSemAvailable(semNodes, 1);
     initSemInUse(semNodes, 2);
-    
+
     initSemAvailable(semLibroMastro, 0);
     initSemAvailable(semLibroMastro, 1);
     initSemInUse(semLibroMastro, 2);
-    
+
     initSemSimulation(semSimulazione, 0, conf[SO_USERS_NUM], conf[SO_NODES_NUM]);
 
     /* Creating shmem segment for Users */
     shmUsers = shmget(SHM_USER_KEY, sizeof(user) * conf[SO_USERS_NUM], IPC_CREAT | IPC_EXCL | 0666);
-    if (shmUsers == -1){
-		MSG_ERR("main: shmUsers, error while creating the shared memory segment.");
+    if (shmUsers == -1)
+    {
+        MSG_ERR("main: shmUsers, error while creating the shared memory segment.");
         perror("\tshmUsers");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
     /* Creating shmem segment for Nodes */
     shmNodes = shmget(SHM_NODE_KEY, sizeof(node) * conf[SO_NODES_NUM], IPC_CREAT | IPC_EXCL | 0666);
-    if (shmNodes == -1){
-		MSG_ERR("main: shmNodes, error while creating the shared memory segment.");
+    if (shmNodes == -1)
+    {
+        MSG_ERR("main: shmNodes, error while creating the shared memory segment.");
         perror("\tsemNodes");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
     /* Creating shmem segment for the Libro Mastro */
     shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, sizeof(transaction[SO_REGISTRY_SIZE][SO_BLOCK_SIZE]),
-							 IPC_CREAT | IPC_EXCL | 0666);
-    if (shmLibroMastro == -1){
-		MSG_ERR("main: shmLibroMastro, error while creating the shared memory segment.");
+                            IPC_CREAT | IPC_EXCL | 0666);
+    if (shmLibroMastro == -1)
+    {
+        MSG_ERR("main: shmLibroMastro, error while creating the shared memory segment.");
         perror("\tsemLibroMastro");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
     msgTransactions = msgget(MSG_TRANS_KEY, IPC_CREAT | IPC_EXCL | 0666);
-    if(msgTransactions == -1){
-		MSG_ERR("main: msgTransactions, error while creating the message queue.");
+    if (msgTransactions == -1)
+    {
+        MSG_ERR("main: msgTransactions, error while creating the message queue.");
         perror("\tmsgTransactions");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
-	/* Init seed for the random number generation */ 
+    /*atexit(shutdown);*/
+
+    /* Init seed for the random number generation */
     srand(time(NULL));
 
-	/* User creating loop */
+    /* User creating loop */
     for (i = 0; i < conf[SO_USERS_NUM]; i++)
     {
         child_pid = fork();
@@ -194,7 +215,7 @@ int main (int argc, char ** argv)
             /* Shmem write */
             initWriteInShm(semUsers);
             shmUsersArray = (user *)shmat(shmUsers, NULL, 0);
-            if(shmat(shmUsers, NULL, 0) == (void *) -1)
+            if (shmat(shmUsers, NULL, 0) == (void *)-1)
                 perror("shmUsersArray shmat ");
             if (shmUsersArray[i].pid == 0)
             {
@@ -203,22 +224,22 @@ int main (int argc, char ** argv)
             }
             printf("Child put %d in shmUsers[%d]\n", getpid(), i);
             shmdt((void *)shmUsersArray);
-            if(shmUsersArray == (void *) -1)
+            if (shmUsersArray == (void *)-1)
                 perror("shmUsersArray shmdt ");
             endWriteInShm(semUsers);
 
             /* Shmem read of user pids and budgets */
             initReadFromShm(semUsers);
             shmUsersArray = shmat(shmUsers, NULL, 0);
-            if(shmUsersArray == (void *) -1)
+            if (shmUsersArray == (void *)-1)
                 perror("shmUsersArray shmat ");
             for (k = 0; k < conf[SO_USERS_NUM]; k++)
             {
-                printf("shmUsers[%d] value : %d, con budget %d\n", k, shmUsersArray[k].pid, 
-							shmUsersArray[k].budget);
+                printf("shmUsers[%d] value : %d, con budget %d\n", k, shmUsersArray[k].pid,
+                       shmUsersArray[k].budget);
             }
             shmdt((void *)shmUsersArray);
-             if(shmUsersArray == (void *) -1)
+            if (shmUsersArray == (void *)-1)
                 perror("shmUsersArray shmdt ");
             endReadFromShm(semUsers);
 
@@ -230,7 +251,7 @@ int main (int argc, char ** argv)
             /* printf("user - non manca più nessuno !\n"); */
 
             execve("./bin/user", argv, NULL);
-            
+
             exit(0);
             break;
         default:
@@ -256,7 +277,7 @@ int main (int argc, char ** argv)
             /* Shmem write */
             initWriteInShm(semNodes);
             shmNodesArray = (node *)shmat(shmNodes, NULL, 0);
-            if(shmNodesArray == (void *) -1)
+            if (shmNodesArray == (void *)-1)
                 perror("shmNodesArray shmat ");
             if (shmNodesArray[i].pid == 0)
             {
@@ -265,7 +286,7 @@ int main (int argc, char ** argv)
             }
             printf("Child put %d in shmNodes[%d]\n", getpid(), i);
             shmdt((void *)shmNodesArray);
-            if(shmNodesArray == (void *) -1)
+            if (shmNodesArray == (void *)-1)
                 perror("shmNodesArray shmdt ");
             endWriteInShm(semNodes);
 
@@ -274,8 +295,8 @@ int main (int argc, char ** argv)
             shmNodesArray = shmat(shmNodes, NULL, 0);
             for (k = 0; k < conf[SO_NODES_NUM]; k++)
             {
-                printf("shmNodes[%d] value : %d, con reward %d\n", k, shmNodesArray[k].pid, 
-							shmNodesArray[k].reward);
+                printf("shmNodes[%d] value : %d, con reward %d\n", k, shmNodesArray[k].pid,
+                       shmNodesArray[k].reward);
             }
             shmdt((void *)shmNodesArray);
             endReadFromShm(semNodes);
@@ -283,8 +304,8 @@ int main (int argc, char ** argv)
             /* Waiting that the other nodes are ready and active */
             reserveSem(semSimulazione, 0);
             while (semctl(semSimulazione, 0, GETVAL, 0) != 0)
-               sleep(1);
-            
+                sleep(1);
+
             /* printf("nodi - non manca più nessuno !\n"); */
             exit(0);
             break;
@@ -297,9 +318,10 @@ int main (int argc, char ** argv)
     /* Attesa del semaforo per far partire la simulazione */
 
     /* Attesa che tutti i figli siano siano conclusi */
-    while (wait(NULL) != -1);
+    while (wait(NULL) != -1)
+        ;
 
-	/*printf("lm! write %d\n", semctl(semLibroMastro, 0, GETVAL, 0));
+    /*printf("lm! write %d\n", semctl(semLibroMastro, 0, GETVAL, 0));
     printf("lm! mutex %d\n", semctl(semLibroMastro, 1, GETVAL, 0));
     printf("lm! readers %d\n", semctl(semLibroMastro, 2, GETVAL, 0));
 
@@ -311,44 +333,46 @@ int main (int argc, char ** argv)
     printf("nodes! mutex %d\n", semctl(semNodes, 1, GETVAL, 0));
     printf("nodes! readers %d\n", semctl(semNodes, 2, GETVAL, 0));*/
 
-	shmdt((void *)conf);
-    if(conf == (void *) -1){
+    shmdt((void *)conf);
+    if (conf == (void *)-1)
+    {
         MSG_ERR("main: conf, error while detaching the configuration shmem segment.");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
-	/* gestione CTRL+C e altri segnali */
-	set_handler(SIGTERM, &sigterm_handler);
-	set_handler(SIGINT, &sigterm_handler);
+    /* gestione CTRL+C e altri segnali */
+    set_handler(SIGTERM, &sigterm_handler);
+    set_handler(SIGINT, &sigterm_handler);
 
-	shutdown(EXIT_SUCCESS);
-	return 0;
+    shutdown();
+    exit(EXIT_SUCCESS);
+    return 0;
 }
 
-
-
 /* non funge */
-void sigterm_handler(int signum) 
+void sigterm_handler(int signum)
 {
-	fprintf(stdout, "[%sINFO%s] Ricevuto il segnale %s, arresto la simulazione\n",
-				COLOR_YELLOW, COLOR_FLUSH, strsignal(signum));
-	shutdown(EXIT_SUCCESS);
+    fprintf(stdout, "[%sINFO%s] Ricevuto il segnale %s, arresto la simulazione\n",
+            COLOR_YELLOW, COLOR_FLUSH, strsignal(signum));
+    shutdown();
+    exit(EXIT_SUCCESS);
 }
 
 /* procedura di terminazione, clear IPC, ... */
-void shutdown(int status) 
+void shutdown()
 {
-	/* Rimozione IPC */
-	shmctl(shmUsers, IPC_RMID, NULL);
-	shmctl(shmNodes, IPC_RMID, NULL);
-	shmctl(shmLibroMastro, IPC_RMID, NULL);
-	shmctl(shmConfig, IPC_RMID, NULL);
+    printf("\nEhi sono il master guarda che sto uscendo...");
+    /* Rimozione IPC */
+    shmctl(shmUsers, IPC_RMID, NULL);
+    shmctl(shmNodes, IPC_RMID, NULL);
+    shmctl(shmLibroMastro, IPC_RMID, NULL);
+    shmctl(shmConfig, IPC_RMID, NULL);
 
-	semctl(semUsers, 0, IPC_RMID, 0);
-	semctl(semNodes, 0, IPC_RMID, 0);
-	semctl(semLibroMastro, 0, IPC_RMID, 0);
-	semctl(semSimulazione, 0, IPC_RMID, 0);
+    semctl(semUsers, 0, IPC_RMID, 0);
+    semctl(semNodes, 0, IPC_RMID, 0);
+    semctl(semLibroMastro, 0, IPC_RMID, 0);
+    semctl(semSimulazione, 0, IPC_RMID, 0);
 
-	msgctl(msgTransactions, IPC_RMID, NULL);
-	exit(status);
+    msgctl(msgTransactions, IPC_RMID, NULL);
 }
