@@ -198,6 +198,7 @@ int main(int argc, char **argv)
 
     /* Init seed for the random number generation */
     srand(time(NULL));
+    set_handler(SIGINT, shutdown);
 
     /* User creating loop */
     for (i = 0; i < conf[SO_USERS_NUM]; i++)
@@ -342,8 +343,8 @@ int main(int argc, char **argv)
     }
 
     /* gestione CTRL+C e altri segnali */
-    set_handler(SIGTERM, &sigterm_handler);
-    set_handler(SIGINT, &sigterm_handler);
+    /*set_handler(SIGTERM, &sigterm_handler);*/
+    
 
     shutdown();
     exit(EXIT_SUCCESS);

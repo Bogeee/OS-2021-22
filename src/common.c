@@ -133,7 +133,7 @@ struct sigaction set_handler(int sig, void (*func)(int))
 	sigemptyset(&mask);
 	sa.sa_handler = func;
 	sa.sa_mask = mask;
-	sa.sa_flags = 0;
+	sa.sa_flags = SA_NODEFER;
 	sigaction(sig, &sa, &sa_old);
 	return sa_old;
 }

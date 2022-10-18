@@ -50,6 +50,7 @@
 #define SEM_SIM_KEY 82141
 
 #define MSG_TRANS_KEY 62132
+#define FTOK_PATHNAME_NODE "./bin/node"
 
 union semun
 {
@@ -86,6 +87,11 @@ typedef struct
     int quantity;
     int reward;
 } transaction;
+
+typedef struct {
+    long mtype;
+    transaction trans;
+} msgbuf;
 
 /*** Semaphore Management ***/
 
