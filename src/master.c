@@ -6,8 +6,9 @@
 #include <string.h>     /* stderr */
 #include <signal.h>		/* set_handler(), */
 #include <errno.h>      /* errno */
-#include "common.h"     /* set_handler */
-#include "bashprint.h"  /* Pretty print messages to screen */
+#include <time.h>       /* time() */
+#include "common.h"
+#include "bashprint.h"
 
 /* only used by get_configuration() as env. variable names */
 char conf_names[N_RUNTIME_CONF_VALUES][22+1] = {
@@ -27,13 +28,19 @@ char conf_names[N_RUNTIME_CONF_VALUES][22+1] = {
 */
 
 /* ----- PROTOTYPES ----- */
+
 void init();
 void init_conf();
 void init_semaphores();
 void init_sharedmem();
 void get_configuration(unsigned long *conf);
 void sigterm_handler(int signum);
+int  check_termination();
+void send_kill_signals();
+void print_stats(int force_print);
 void shutdown(int status);
+
+/* ------- GLOBAL VARIABLES ------- */
 
 int shmConfig; /* ID shmem configurazione */
 int shmUsers;  /* ID shmem users data */
@@ -55,6 +62,10 @@ int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semSimulazione;  /* Semaphore for the simulation */
 unsigned long *conf; /* Array of conf. values attached to shmem */
 
+int remaining_users; /* Number of active users */
+int remaining_nodes; /* Number of active nodes */
+time_t starting_time;
+
 int main (int argc, char ** argv)
 {
     pid_t child_pid, wpid; /* child_pid is used for the fork, wpid unused */
@@ -69,7 +80,12 @@ int main (int argc, char ** argv)
     int randomNode; /* Random node */
     int randomQuantity; /* Random quantity for the transaction */
     int nodeReward; /* Transaction reward */
+    int termination_reason = 0;
     int i=0, j=0, k=0;
+
+    struct timespec t;
+    t.tv_sec = 1;
+    t.tv_nsec = 0;
 
 	/*system("clear"); */
     init();
@@ -193,6 +209,9 @@ int main (int argc, char ** argv)
         }
     }
 
+    /* When this integer reaches 0, the simulation must end */
+    remaining_users = conf[SO_USERS_NUM];
+
     /* Nodes creating loop */
     for (i = 0; i < conf[SO_NODES_NUM]; i++){
         child_pid = fork();
@@ -255,26 +274,31 @@ int main (int argc, char ** argv)
         }
     }
 
-    /* Attesa del semaforo per far partire la simulazione */
-
-    /* Attesa che tutti i figli siano siano conclusi */
-    while (wait(NULL) != -1);
-
-	/*printf("lm! write %d\n", semctl(semLibroMastro, 0, GETVAL, 0));
-    printf("lm! mutex %d\n", semctl(semLibroMastro, 1, GETVAL, 0));
-    printf("lm! readers %d\n", semctl(semLibroMastro, 2, GETVAL, 0));
-
-    printf("user! write %d\n", semctl(semUsers, 0, GETVAL, 0));
-    printf("user! mutex %d\n", semctl(semUsers, 1, GETVAL, 0));
-    printf("user! readers %d\n", semctl(semUsers, 2, GETVAL, 0));
-
-    printf("nodes! write %d\n", semctl(semNodes, 0, GETVAL, 0));
-    printf("nodes! mutex %d\n", semctl(semNodes, 1, GETVAL, 0));
-    printf("nodes! readers %d\n", semctl(semNodes, 2, GETVAL, 0));*/
+    remaining_nodes = conf[SO_NODES_NUM];
 
 	/* gestione CTRL+C e altri segnali */
 	set_handler(SIGTERM, &sigterm_handler);
 	set_handler(SIGINT, &sigterm_handler);
+	set_handler(SIGALRM, &sigterm_handler);
+	set_handler(SIGCHLD, &sigterm_handler);
+
+    /* Attesa del semaforo per far partire la simulazione */
+
+    // time(&starting_time); alarm
+    while (1){
+        nanosleep(&t, &t);
+        if(termination_reason = check_termination()){
+            send_kill_signals();
+
+            /* Attesa che tutti i figli siano siano conclusi */
+            while (wait(NULL) != -1);
+            
+            print_stats(1);
+            shutdown(EXIT_SUCCESS);
+        } else {
+            print_stats(0);
+        }
+    }
 
 	shutdown(EXIT_SUCCESS);
 	return 0;
@@ -532,3 +556,41 @@ void shutdown(int status)
 
     exit(status);
 }
+
+/* this function checks termination */
+int check_termination()
+{
+    /* Reason (1): time > SO_SIM_SEC */
+    if(time(NULL) - starting_time >= conf[SO_SIM_SEC]){
+        printf("Ending simulation: The execution lasted SO_SIM_SEC=%ld seconds.\n", conf[SO_SIM_SEC]);
+        return 1;
+    }
+    
+    /* Reason (2): Libro Mastro is full, block_number == SO_REGISTRY_SIZE ?? */
+
+    /* Reason (3): No more active users */
+    if(remaining_users == 0){
+        printf("Ending simulation: No more active users.\n");
+        return 3;
+    }
+}
+
+/*  */
+void send_kill_signals()
+{
+    /* In questo caso kill() esegue unicamente un controllo degli
+errori per vedere se è possibile inviare segnali al processo: il
+null signal può essere utilizzato per testare se un processo con
+un certo pid esiste, controllo ESRCH, EPERM */
+    /* For each PID in Users array, send signal */
+
+    /* For each PID in Nodes array, send signal */
+
+}
+
+/*  */
+void print_stats(int force_print)
+{
+
+}
+

@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <time.h>
+#include <string.h> /* bzero */
+#include <signal.h> /* sigaction, SIG* */
 #include "common.h"
 #include "bashprint.h"
 
@@ -16,6 +18,14 @@ node *shmNodesArray; /* ID shmem Array of Node PIDs */
 
 int myTransitionsMsg; /* ID for the message queue */
 
+/*  */
+struct sigaction sa;
+
+
+/* TODO:
+   SCRITTURA LIBRO MASTRO,
+   SO_TP_SIZE?
+   TEST CODICE */
 int main()
 {
 	msgbuf msg;
@@ -59,11 +69,15 @@ int main()
 				/* transSet.blockNumber = ?; */
 
 				/* processing */
-				int r = randomNum(SO_MIN_TRANS_PROC_NSEC, SO_MAX_TRANS_GEN_NSEC);
-				nanosleep(0, r);
+				t.tv_sec = 0;
+				t.tv_nsec = randomNum(SO_MIN_TRANS_PROC_NSEC, SO_MAX_TRANS_GEN_NSEC);
+				nanosleep(&t, &t);
 
 				/* writing to LibroMastro */
+				/* scrittura */
 
+				/*  */
+				count = 0;
 			}
 		}
 
@@ -86,6 +100,7 @@ int main()
 	return 0;
 }
 
+/*  */
 void init()
 {
 	shmConfig = shmget(SHM_ENV_KEY, sizeof(unsigned long) * N_RUNTIME_CONF_VALUES, 
@@ -118,4 +133,13 @@ void init()
         perror("\tmyTransitionsMsg");
 		shutdown(EXIT_FAILURE);
 	}
+
+	/* Master wants to kill the node */
+	bzero(&sa, sizeof(sa));
+	sa.sa_handler = sigint_handler;
+	sigaction(SIGINT, &sa, NULL);
+}
+
+void sigint_handler(){
+
 }
