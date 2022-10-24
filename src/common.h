@@ -35,11 +35,13 @@
 #define SHM_NODE_KEY 1826
 #define SHM_LIBROMASTRO_KEY 9001
 #define SHM_ENV_KEY 9800
+#define SHM_BLOCK_NUMBER 88888
 
 #define SEM_USER_KEY 76543
 #define SEM_NODE_KEY 2009
 #define SEM_LIBROMASTRO_KEY 65432
 #define SEM_SIM_KEY 82141
+#define SEM_BLOCK_NUMBER 88889
 
 #define MSG_TRANS_KEY 62132
 #define FTOK_PATHNAME_NODE "./bin/node"
@@ -91,7 +93,7 @@ typedef struct{
 /* Block for Libro Mastro */
 typedef struct
 {
-    int block_number;
+    unsigned int block_number;
     transaction (*transBlock)[SO_BLOCK_SIZE];
 } block;
 
@@ -124,7 +126,12 @@ void reset_signals(sigset_t old_mask);
 struct sigaction set_handler(int sig, void (*func)(int));
 
 /*** Shared Memory Management ***/
-
+/* 
+ * Semaphore values:
+ *      0 write
+ *      1 mutex
+ *      2 readcount
+ */
 void initReadFromShm(int);
 void endReadFromShm(int);
 void initWriteInShm(int);

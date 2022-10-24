@@ -71,7 +71,8 @@ int initSemSimulation(int semId, int semNum, int usersNum, int nodesNum)
 
 /* Blocca i segnali elencati tra gli argomenti */
 /* Restituisce la vecchia maschera */
-sigset_t block_signals(int count, ...) {
+sigset_t block_signals(int count, ...)
+{
 	sigset_t mask, old_mask;
 	va_list argptr;
 	int i;
@@ -92,7 +93,8 @@ sigset_t block_signals(int count, ...) {
 
 /* Sblocca i segnali elencati tra gli argomenti */
 /* Restituisce la vecchia maschera */
-sigset_t unblock_signals(int count, ...) {
+sigset_t unblock_signals(int count, ...)
+{
 	sigset_t mask, old_mask;
 	va_list argptr;
 	int i;
@@ -115,19 +117,21 @@ sigset_t unblock_signals(int count, ...) {
  * Imposta una maschera per i segnali, usata per reimpostare una
  * vecchia maschera ritornata da block_signals
  */
-void reset_signals(sigset_t old_mask) {
+void reset_signals(sigset_t old_mask)
+{
 	sigprocmask(SIG_SETMASK, &old_mask, NULL);
 }
 
 /* Imposta un nuovo handler per il segnale sig */
 /* Ritorna il vecchio struct sigaction */
-struct sigaction set_handler(int sig, void (*func)(int)) {
+struct sigaction set_handler(int sig, void (*func)(int))
+{
 	struct sigaction sa, sa_old;
 	sigset_t mask;
 	sigemptyset(&mask);
 	sa.sa_handler = func;
 	sa.sa_mask = mask;
-	sa.sa_flags = 0;
+	sa.sa_flags = SA_NODEFER;
 	sigaction(sig, &sa, &sa_old);
 	return sa_old;
 }
@@ -184,7 +188,7 @@ void endReadFromShm(int semId)
 void initWriteInShm(int semId)
 {
     while (semctl(semId, 0, GETVAL, 0) == 0)
-                ;
+        ;
     reserveSem(semId, 0);
 }
 
