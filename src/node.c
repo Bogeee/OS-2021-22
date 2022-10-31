@@ -14,8 +14,11 @@ void init_sharedmem();
 void init_semaphores();
 void init_msgqueue();
 
+/* Signal Handlers */
+void sigint_handler();
+
 /* Termination */
-void shutdown();
+void shutdown(int status);
 
 /* -------------------- GLOBAL VARIABLES -------------------- */
 
@@ -27,8 +30,8 @@ int shmBlockNumber;   /* ID shmem libro mastro block number */
 
 /**** SHARED MEMORY ATTACHED VARIABLES ****/
 node *shmNodesArray;          /* Shmem Array of Node PIDs */
-block (*libroMastroArray)[SO_REGISTRY_SIZE];    /* Shmem Array of blocks */
-unsigned int block_number;    /* Shmem number of the last block */
+block *libroMastroArray;      /* Shmem Array of blocks */
+unsigned int *block_number;   /* Shmem number of the last block */
 unsigned long *conf;          /* Shmem Array of configuration values */
 
 /**** MESSAGE QUEUE ID ****/
@@ -45,20 +48,24 @@ int semBlockNumber;  /* Semaphore for the last block number */
 int main()
 {
 	msgbuf msg;
-	transaction transBlock[conf[SO_BLOCK_SIZE]];
+	transaction transBlock[SO_BLOCK_SIZE]  = {0};
 	transaction reward;
 	struct timespec t;
 	block transSet;
 
-	int num_bytes;
+	ssize_t num_bytes;
 	int count = 0;
 	int i = 0;
 	int sum_rewards;
 
+	/*  */
+	int j = 0;
+
 	init();
 	printf("node.main(): MSG_QUEUE Waiting for messages...\n");
 	while(1){
-		num_bytes = msgrcv(myTransactionsMsg, &msg, sizeof(msg) - sizeof(long), getpid(), 0);
+		
+		num_bytes = msgrcv(myTransactionsMsg, &msg, sizeof(msg), 0, 0);
 
 		if (num_bytes > 0) {
 			/* received a good message */
@@ -66,7 +73,8 @@ int main()
 			transBlock[count] = msg.trans;
 			count++;
 
-			if(count == conf[SO_BLOCK_SIZE]-2){
+			if(count == SO_BLOCK_SIZE-1){
+#if 1
 				/* adding the reward transaction */
 				for(i = 0; i <= count; i++){
 					sum_rewards += transBlock[i].reward;
@@ -77,14 +85,15 @@ int main()
 				reward.quantity = sum_rewards;
 				reward.reward = 0;
 				
-				transBlock[++count] = reward;
+				transBlock[count] = reward;
 
 				/* creating block */
 				transSet.transBlock = transBlock;
 
+				block_signals(1, SIGINT);
 				/* Use the current block_number value and increment it */
-				initWriteInShm(shmBlockNumber);
-				transSet.block_number = block_number;
+				initWriteInShm(semBlockNumber);
+				transSet.block_number = *block_number;
 				/* Not releasing the semaphore yet, I use the block_number
 					as index for the libro mastro's array of blocks */
 
@@ -93,19 +102,36 @@ int main()
 				t.tv_nsec = randomNum(conf[SO_MIN_TRANS_PROC_NSEC], conf[SO_MAX_TRANS_GEN_NSEC]);
 				nanosleep(&t, &t);
 
-				initWriteInShm(shmLibroMastro);
-				*libroMastroArray[block_number] = transSet;
-				endWriteInShm(shmLibroMastro);
+				initWriteInShm(semLibroMastro);
+				libroMastroArray[*block_number] = transSet;
+				endWriteInShm(semLibroMastro);
 
-				block_number++;
+				*block_number = *block_number + 1;
 				/* libro mastro is full */
-				if(block_number == conf[SO_REGISTRY_SIZE]){
+				if(*block_number == SO_REGISTRY_SIZE){
 					/* send signal to master process */
 					kill(getppid(), SIGUSR1);
 				}
-				endWriteInShm(shmBlockNumber);
+
+				initReadFromShm(semLibroMastro);
+				for(i = 0; i < *block_number; i++){
+					printf("Block #%d:\n", i);
+					for(j = 0; j < SO_BLOCK_SIZE; j++){
+						printf("\tTransaction #%d: t=%d\t snd=%d\t rcv=%d\t qty=%d\t rwd=%d\n",
+								j, libroMastroArray[i].transBlock[j].timestamp,
+								libroMastroArray[i].transBlock[j].sender,
+								libroMastroArray[i].transBlock[j].receiver,
+								libroMastroArray[i].transBlock[j].quantity,
+								libroMastroArray[i].transBlock[j].reward);
+					}
+				}
+				endReadFromShm(semLibroMastro);
+
+				endWriteInShm(semBlockNumber);
+				unblock_signals(1, SIGINT);
 				
 				/* we can start writing another block */
+#endif
 				count = 0;
 			}
 		}
@@ -138,6 +164,9 @@ void init()
 	init_sharedmem();
 	init_semaphores();
 	init_msgqueue();
+
+	/* Initializes seed for the random number generation */ 
+    srand(time(NULL));
 
 	/* Master wants to kill the node */
 	set_handler(SIGINT, sigint_handler);
@@ -175,16 +204,18 @@ void init_sharedmem()
         perror("\tshmBlockNumber");
 		shutdown(EXIT_FAILURE); 
 	}
-    block_number = shmat(shmBlockNumber, NULL, 0);
+    block_number = (unsigned int *)shmat(shmBlockNumber, NULL, 0);
 
 	/* Accessing shmem segment for the Libro Mastro */
-    shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, sizeof(block[conf[SO_REGISTRY_SIZE]]), 0666);
+    shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, 
+							sizeof(block) * SO_REGISTRY_SIZE, 
+							0666);
     if (shmLibroMastro == -1){
 		MSG_ERR("node.init(): shmLibroMastro, error while creating the shared memory segment.");
         perror("\tshmLibroMastro");
 		shutdown(EXIT_FAILURE);
 	}
-	libroMastroArray = shmat(shmLibroMastro, NULL, 0);
+	libroMastroArray = (block *)shmat(shmLibroMastro, NULL, 0);
 }
 
 /* Accessing to the semaphores for the shared memory */
@@ -215,7 +246,7 @@ void init_semaphores()
 /* Accessing the message queue, SO_TP_SIZE management */
 void init_msgqueue()
 {
-	struct msqid_ds *msg_params;
+	struct msqid_ds msg_params;
 	msglen_t msg_max_size_no_root;
 
 	myTransactionsMsg = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), 0666);
@@ -226,8 +257,8 @@ void init_msgqueue()
 	}
 
 	/* SO_TP_SIZE management */
-	msgctl(myTransactionsMsg, IPC_STAT, msg_params);
-	msg_max_size_no_root = msg_params->msg_qbytes;
+	msgctl(myTransactionsMsg, IPC_STAT, &msg_params);
+	msg_max_size_no_root = msg_params.msg_qbytes;
 
 	if(sizeof(msgbuf) * conf[SO_TP_SIZE] > msg_max_size_no_root){
 		MSG_ERR("node.init(): msg_queue_size, the transaction pool is bigger than the maximum msgqueue size.");
@@ -236,8 +267,8 @@ void init_msgqueue()
 	}
 
 	/* Setting the max msgqueue size, when TP is full, the msgsnd() fails with EAGAIN */
-	msg_params->msg_qbytes = sizeof(msgbuf) * conf[SO_TP_SIZE];
-	msgctl(myTransactionsMsg, IPC_SET, msg_params);
+	msg_params.msg_qbytes = sizeof(msgbuf) * conf[SO_TP_SIZE];
+	msgctl(myTransactionsMsg, IPC_SET, &msg_params);
 }
 
 
@@ -254,7 +285,7 @@ void sigint_handler()
 void shutdown(int status)
 {
     /* Rimozione IPC */
-    /* detach the shmem for the last block number */
+    /* detach the shmem for the nodes Array */
     shmdt((void *)shmNodesArray);
     if(shmNodesArray == (void *) -1){
         MSG_ERR("node.shutdown(): shmNodesArray, error while detaching "

@@ -1,8 +1,8 @@
 ###############################
 # Custom configuration values #
 ###############################
-SO_BLOCK_SIZE = 10
-SO_REGISTRY_SIZE = 100
+SO_BLOCK_SIZE = 5
+SO_REGISTRY_SIZE = 2
 
 # MACRO DECLARATION
 # Custom configuration
