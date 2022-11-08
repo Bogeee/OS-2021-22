@@ -79,7 +79,7 @@ int remaining_users; /* Number of active users */
 int remaining_nodes; /* Number of active nodes */
 
 
-int main (int argc, char ** argv)
+int main(int argc, char **argv)
 {
     /* To print the stats every second */
     struct timespec t;
@@ -176,22 +176,25 @@ void init_semaphores()
     if(semUsers == -1){
 		MSG_ERR("master.init(): semUsers, error while creating the semaphore.");
         perror("\tsemUsers");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
 	semNodes = semget(SEM_NODE_KEY, 3, IPC_CREAT | 0666);
     if(semNodes == -1){
 		MSG_ERR("master.init(): semNodes, error while creating the semaphore.");
         perror("\tsemNodes");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
 	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
     if(semLibroMastro == -1){
 		MSG_ERR("master.init(): semLibroMastro, error while creating the semaphore.");
         perror("\tsemLibroMastro");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
     semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, IPC_CREAT | 0666);
     if(semBlockNumber == -1){
@@ -204,8 +207,9 @@ void init_semaphores()
     if(semSimulation == -1){
 		MSG_ERR("master.init(): semSimulation, error while creating the semaphore.");
         perror("\tsemSimulazione");
-		shutdown(EXIT_FAILURE);
-	}
+        shutdown();
+        exit(EXIT_FAILURE);
+    }
 
     /* Inizializzazione semafori */
     /*if(initSemAvailable(semUsers, 0) == -1)
@@ -232,14 +236,14 @@ void init_semaphores()
     if( initSemSimulation(semSimulation, 0) == -1)
         perror("initSemSimulation(semSimulation, 0) ");*/
 
-	initSemAvailable(semUsers, 0);
+    initSemAvailable(semUsers, 0);
     initSemAvailable(semUsers, 1);
     initSemInUse(semUsers, 2);
 
     initSemAvailable(semNodes, 0);
     initSemAvailable(semNodes, 1);
     initSemInUse(semNodes, 2);
-    
+
     initSemAvailable(semLibroMastro, 0);
     initSemAvailable(semLibroMastro, 1);
     initSemInUse(semLibroMastro, 2);
