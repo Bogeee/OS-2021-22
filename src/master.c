@@ -108,7 +108,7 @@ int main (int argc, char ** argv)
 	set_handler(SIGTERM, sigterm_handler);
 	set_handler(SIGINT,  sigterm_handler);
 	set_handler(SIGALRM, sigalrm_handler);
-	/* set_handler(SIGCHLD, sigchld_handler); */
+	set_handler(SIGCHLD, sigchld_handler);
 	set_handler(SIGUSR1, sigusr1_handler);
 
     /* ????????????? */
@@ -519,7 +519,15 @@ void print_stats(int force_print)
 {
     int i = 0, j = 0;
     if(force_print){
-/*         initReadFromShm(semLibroMastro);
+        initReadFromShm(semUsers);
+        printf("\n\n===============USERS==============\n");
+        for(i = 0; i < conf[SO_USERS_NUM]; i++){
+            printf("\tPID:%d\n", shmUsersArray[i].pid);
+            printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
+        }
+        endReadFromShm(semUsers);
+
+        initReadFromShm(semLibroMastro);
         initReadFromShm(semBlockNumber);
         printf("\n\n===============BLOCKCHAIN==============\n");
         printf("# of blocks: %d\n", *block_number);
@@ -536,7 +544,7 @@ void print_stats(int force_print)
             }
         }
         endReadFromShm(semBlockNumber);
-        endReadFromShm(semLibroMastro); */
+        endReadFromShm(semLibroMastro);
     }
     else{
         initReadFromShm(semUsers);

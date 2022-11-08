@@ -14,7 +14,7 @@ void init_semaphores();
 
 /* Lifetime */
 int createTransaction();
-int getBilancio();
+void getBilancio();
 
 /* Signal Handlers */
 void sigusr1_handler();
@@ -48,30 +48,30 @@ int semUsers;        /* Semaphore for shmem access on the Array of User PIDs */
 int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semBlockNumber;  /* Semaphore for the last block number */
 
+int bilancio; /* User's budget */
 
 int main(int argc, char **argv)
 {
     /* TODO: check shmat, init, libromastroArray */
     int fails = 0;  /* used with SO_RETRY */
-    int bilancio;   /*  */
-    int status = 0; /*  */
     
     init();
-	printf("user.main(): Ready to create transactions...\n");
 
+	printf("user.main(): Ready to create transactions...\n");
 
     /* Starting user loop */
     while (fails < conf[SO_RETRY])
     {
         /*printf("\n creating bilancio ...");*/
-        bilancio = getBilancio();
+        getBilancio();
         if (bilancio >= 2) {
-            if(createTransaction(bilancio) == 0)
+            if(createTransaction() == 0)
                 fails++;
         } else
             fails++;
     }
 	printf("user.main(%d): Too many fails...\n", getpid());
+    kill(getppid(), SIGCHLD);
     return 0;
 }
 
@@ -83,9 +83,12 @@ void init()
 	init_conf();
 	init_semaphores();
 	init_sharedmem();
-    
+
     /* Initializes seed for the random number generation */ 
-    srand(time(NULL));
+    srand(getpid()+getppid());
+
+    /* Initializes the User's budget */
+    bilancio = conf[SO_BUDGET_INIT];
 
 	/* Master wants to kill the node */
     set_handler(SIGUSR1, sigusr1_handler);
@@ -136,7 +139,7 @@ void init_sharedmem()
 	}
     block_number = (unsigned int *)shmat(shmBlockNumber, NULL, 0);
 
-    shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, sizeof(block) * SO_REGISTRY_SIZE, 0666);
+    shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, sizeof(block) * SO_REGISTRY_SIZE, SHM_RDONLY | 0666);
     if (shmLibroMastro == -1)
     {
         MSG_ERR("user.init(): shmLibroMastro, error while creating the shared memory segment.");
@@ -184,7 +187,7 @@ void init_semaphores()
 /* -------------------- LIFETIME FUNCTIONS -------------------- */
 
 /*  */
-int createTransaction(int bilancio)
+int createTransaction()
 {
     msgbuf msg;
     struct timespec tempo;
@@ -231,47 +234,48 @@ int createTransaction(int bilancio)
     {
         return 0;
     } else {
+        bilancio -= (randomQuantity + nodeReward);
         tempo.tv_sec = 0;
         tempo.tv_nsec = randomNum(conf[SO_MIN_TRANS_GEN_NSEC], conf[SO_MAX_TRANS_GEN_NSEC]);
         nanosleep(&tempo, &tempo);
     }
-    printf("Transazione inviata con successo al nodo: %d\n", randomNodePID);
     return 1;
 }
 
 /*  */
-int getBilancio()
+void getBilancio()
 {
     /* calcolo bilancio - lettura with and readers solution */
-    int bilancio = conf[SO_BUDGET_INIT];
-    int k = 0, j = 0; 
+    int i = 0, j = 0; 
+
     initReadFromShm(semBlockNumber);
     initReadFromShm(semLibroMastro);
-    for (k = 0; k < *block_number; k++)
+    if(*block_number)
+        bilancio = conf[SO_BUDGET_INIT];
+    for (i = 0; i < *block_number; i++)
     {
         for (j = 0; j < SO_BLOCK_SIZE; j++)
         {
             /* TODO: calcolo bilancio dev'essere calcolato anche in base alle transazioni in coda
                     contare anche i reward inviati ai nodi */
+            
+             if (libroMastroArray[i].transBlock[j].receiver == getpid())
+                bilancio += libroMastroArray[i].transBlock[j].quantity;
 
-            if (libroMastroArray[k].transBlock[j].receiver == getpid())
-                bilancio += libroMastroArray[k].transBlock[j].quantity;
-
-            if (libroMastroArray[k].transBlock[j].sender == getpid())
-                bilancio -= libroMastroArray[k].transBlock[j].quantity;
+            if (libroMastroArray[i].transBlock[j].sender == getpid())
+                bilancio -= (libroMastroArray[i].transBlock[j].quantity
+                            + libroMastroArray[i].transBlock[j].reward);
         }
     }
     endReadFromShm(semLibroMastro);
     endReadFromShm(semBlockNumber);
 
     initWriteInShm(semNodes);
-    k = 0;
-    while(shmUsersArray[k].pid != getpid())
-        k++;
-    shmUsersArray[k].budget = bilancio;
+    i = 0;
+    while(shmUsersArray[i].pid != getpid())
+        i++;
+    shmUsersArray[i].budget = bilancio;
     endWriteInShm(semNodes);
-
-    return bilancio;
 }
 
 /* -------------------- SIGNAL HANDLERS -------------------- */

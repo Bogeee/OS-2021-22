@@ -48,7 +48,6 @@ int semBlockNumber;  /* Semaphore for the last block number */
 int main()
 {
 	msgbuf msg;
-	transaction transBlock[SO_BLOCK_SIZE]  = {0};
 	transaction reward;
 	struct timespec t;
 	block transSet;
@@ -70,14 +69,14 @@ int main()
 		if (num_bytes > 0) {
 			/* received a good message */
 			/* adding the transaction to a local block */
-			transBlock[count] = msg.trans;
+			transSet.transBlock[count] = msg.trans;
 			count++;
 
 			if(count == SO_BLOCK_SIZE-1){
 #if 1
 				/* adding the reward transaction */
 				for(i = 0; i <= count; i++){
-					sum_rewards += transBlock[i].reward;
+					sum_rewards += transSet.transBlock[i].reward;
 				}
 				reward.timestamp = clock_gettime(CLOCK_REALTIME, &t);
 				reward.sender = TRANS_REWARD_SENDER;
@@ -85,10 +84,7 @@ int main()
 				reward.quantity = sum_rewards;
 				reward.reward = 0;
 				
-				transBlock[count] = reward;
-
-				/* creating block */
-				transSet.transBlock = transBlock;
+				transSet.transBlock[count] = reward;
 
 				block_signals(1, SIGINT);
 				/* Use the current block_number value and increment it */
@@ -113,19 +109,19 @@ int main()
 					kill(getppid(), SIGUSR1);
 				}
 
-				initReadFromShm(semLibroMastro);
+				/* initReadFromShm(semLibroMastro);
 				for(i = 0; i < *block_number; i++){
 					printf("Block #%d:\n", i);
 					for(j = 0; j < SO_BLOCK_SIZE; j++){
-						printf("\tTransaction #%d: t=%d\t snd=%d\t rcv=%d\t qty=%d\t rwd=%d\n",
-								j, libroMastroArray[i].transBlock[j].timestamp,
+						printf("\tTransaction #[%d,%d]: t=%d\t snd=%d\t rcv=%d\t qty=%d\t rwd=%d\n",
+								i,j, libroMastroArray[i].transBlock[j].timestamp,
 								libroMastroArray[i].transBlock[j].sender,
 								libroMastroArray[i].transBlock[j].receiver,
 								libroMastroArray[i].transBlock[j].quantity,
 								libroMastroArray[i].transBlock[j].reward);
 					}
 				}
-				endReadFromShm(semLibroMastro);
+				endReadFromShm(semLibroMastro); */
 
 				endWriteInShm(semBlockNumber);
 				unblock_signals(1, SIGINT);

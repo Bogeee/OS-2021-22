@@ -94,7 +94,7 @@ typedef struct{
 typedef struct
 {
     unsigned int block_number;
-    transaction *transBlock;
+    transaction transBlock[SO_BLOCK_SIZE];
 } block;
 
 /* configuration */
