@@ -4,3 +4,9 @@
 # Object/Binary files
 bin/*
 build/*
+
+# Notes 
+NOTES.md
+
+# core dump, for debugging 
+core

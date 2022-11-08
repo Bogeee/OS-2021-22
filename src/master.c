@@ -1,115 +1,211 @@
 #define _GNU_SOURCE
 
-#include "common.h" /* set_handler */
+#include <stdio.h>      /* printf(), fgets() */
+#include <stdlib.h>     /* atoi(), calloc(), free(), getenv() */ 
+#include <limits.h>     /* Limits of numbers macros */ 
+#include <string.h>     /* stderr */
+#include <signal.h>		/* kill(), SIG* */
+#include <errno.h>      /* errno */
+#include <time.h>       /* time(), struct timespec */
+#include "common.h"
+#include "bashprint.h"
 
-/*
-    TODO:
-    -FATTO : Riorganizzazione header leggere configurazione e mettere su sharedmemory, define solo di cose necessarie, chiavi condivise su header file.h
-    -Id code di messaggi una per nodo dove andranno caricate le transazioni da immettere nel libro mastro scartando quelle in eccesso, creazione transaction pool
-    -Modularizzare con l'utilizzo di exec_ve utilizzando la consegna come divisione in moduli (utenti, nodi, terminazione etc..)
-    -Creazione transazioni, metterle nella coda estratta a caso e continuare il ciclo
-    -Ciclo dei nodi, che prenderanno le transazioni dalla coda quando ci saranno sufficenti transazioni per riempire un blocco del registro
-    -Aggiungere segnale per scatenare una transazione da utente
-    -Gestione della terminazione da Master: quando si verifica determinati eventi gestire killando nodi e processi e levare le ipc usate
-*/
-/*Funzione del master che da accesso alla scrittura/lettura dei dati in shm contenenti la configurazione file */
+/* Force to print all the stats at the end of the simulation */
+#define FORCE_PRINT_STATS 1
+/* The print_stats(int) function will just print the useful info */
+#define PRINT_USEFUL_STATS 0
 
-/* ----- PROTOTYPES ----- */
+/* only used by get_configuration() as env. variable names */
+char conf_names[N_RUNTIME_CONF_VALUES][22+1] = {
+	"SO_USERS_NUM", "SO_NODES_NUM", "SO_BUDGET_INIT", "SO_REWARD",
+	"SO_MIN_TRANS_GEN_NSEC", "SO_MAX_TRANS_GEN_NSEC", "SO_RETRY",
+	"SO_TP_SIZE", "SO_MIN_TRANS_PROC_NSEC", "SO_MAX_TRANS_PROC_NSEC", 
+	"SO_SIM_SEC", "SO_FRIENDS_NUM", "SO_HOPS"
+};
 
+/* -------------------- PROTOTYPES -------------------- */
+
+/* Initialization */
+void init();
+void init_conf();
+void init_semaphores();
+void init_sharedmem();
+void get_configuration(unsigned long *conf);
+void users_generation();
+void nodes_generation();
+
+/* Lifetime */
+void print_stats(int force_print);
+
+/* Signal Handlers  */
 void sigterm_handler(int signum);
-void shutdown();
+void sigusr1_handler(int signum);
+void sigalrm_handler(int signum);
+void sigchld_handler(int signum);
 
-int shmConfig;       /* ID shmem configurazione */
-int shmUsers;        /* ID shmem users data */
-int shmNodes;        /* ID shmem nodes data */
-int shmLibroMastro;  /* ID shmem Libro Mastro */
-int msgTransactions; /* ID msg queue transactions */
-user *shmUsersArray; /* ID shmem Array of User PIDs */
-node *shmNodesArray; /* ID shmem Array of Node PIDs */
-#ifdef SO_REGISTRY_SIZE
-transaction (*shmLibroMastroMatrix)[SO_REGISTRY_SIZE]; /* ID shmem Array of transactions */
-#endif
+/* Termination */
+void send_kill_signals();
+void shutdown(int status);
+void clean_end();
 
-/** Semaphore values
- * 0 write
- * 1 mutex
- * 2 readcount
- * **/
-int semUsers;       /* Semaphore for shmem access on the Array of User PIDs */
-int semNodes;       /* Semaphore for shmem access on the Array of Node PIDs */
-int semLibroMastro; /* Semaphore for shmem access on the Libro Mastro */
-int semSimulazione; /* Semaphore for the simulation */
+/* -------------------- GLOBAL VARIABLES -------------------- */
+
+/**** SHARED MEMORY IDs ****/
+int shmConfig;        /* ID shmem configuration */
+int shmUsers;         /* ID shmem users data */
+int shmNodes;         /* ID shmem nodes data */
+int shmLibroMastro;   /* ID shmem Libro Mastro */
+int shmBlockNumber;   /* ID shmem libro mastro block number */
+
+/**** SHARED MEMORY ATTACHED VARIABLES ****/
+user *shmUsersArray;          /* Shmem Array of User PIDs */
+node *shmNodesArray;          /* Shmem Array of Node PIDs */
+block *libroMastroArray;      /* Shmem Array of blocks */
+unsigned int *block_number;   /* Shmem number of the last block */
+unsigned long *conf;          /* Shmem Array of configuration values */
+
+/**** MESSAGE QUEUE IDs ****/
+int *msgTransactions; /* Msg queues IDs Array */
+
+/**** SEMAPHORE IDs ****/
+int semUsers;        /* Semaphore for shmem access on the Array of User PIDs */
+int semNodes;        /* Semaphore for shmem access on the Array of Node PIDs */
+int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
+int semSimulation;   /* Semaphore for the simulation */
+int semBlockNumber;  /* Semaphore for the last block number */
+
+/**** STATISTICAL VARIABLES ****/
+int remaining_users; /* Number of active users */
+int remaining_nodes; /* Number of active nodes */
+
 
 int main(int argc, char **argv)
 {
-    unsigned long *conf;   /* Array of conf. values attached to shmem */
-    pid_t child_pid, wpid; /* child_pid is used for the fork, wpid unused */
+    /* To print the stats every second */
+    struct timespec t;
+    t.tv_sec = 1;
+    t.tv_nsec = 0;
 
-    /*** Certe robe vanno poi spostate in user.c e node.c, ora le metto per essere
-     * standard C89 compliant ***/
-    int status = 0;     /*  */
-    int fails = 0;      /* used with SO_RETRY */
-    int bilancio;       /*  */
-    transaction newTr;  /* new transaction */
-    int randomReceiver; /* Random user */
-    int randomNode;     /* Random node */
-    int randomQuantity; /* Random quantity for the transaction */
-    int nodeReward;     /* Transaction reward */
-    int i = 0, j = 0, k = 0;
+	/*system("clear"); */
 
-    /*system("clear"); */
+    /* (1): Get simulation configuration, initialize IPC Objects */
+    init();
+
+    /* (2): Generate child processes */
+    nodes_generation();
+    /* For statistical purposes */
+    remaining_nodes = conf[SO_NODES_NUM];
+    
+    users_generation();
+    /* When this integer reaches 0, the simulation must end */
+    remaining_users = conf[SO_USERS_NUM];
+
+    /* 
+     * (3): Signal handling, signals to the Master are used to determine
+     *      termination conditions.
+     *      - Print stats every second. 
+     */
+	set_handler(SIGTERM, sigterm_handler);
+	set_handler(SIGINT,  sigterm_handler);
+	set_handler(SIGALRM, sigalrm_handler);
+	set_handler(SIGCHLD, sigchld_handler);
+	set_handler(SIGUSR1, sigusr1_handler);
+
+    /* ????????????? */
+    /* Attesa del semaforo per far partire la simulazione */
+    /* ????????????? */
+    
+    alarm(conf[SO_SIM_SEC]);
+    while (1){
+        nanosleep(&t, &t);
+        print_stats(PRINT_USEFUL_STATS);
+    }
+
+    /*
+     * (4): Clear IPC object, Memory Free, Termination are managed by
+     *      the termination functions.
+     */ 
+
+	return 0;
+}
+
+/* -------------------- INITIALIZATION FUNCTIONS -------------------- */
+
+#pragma region INITIALIZATION
+/* TODO: flags 0600  */
+
+/* Wrapper function that calls the other initialization functions  */
+void init()
+{
+    init_conf();
+    init_semaphores();
+	init_sharedmem();
+
+    /* 
+     * Message queues are created in nodes_generation(),
+     * this is just the array of Msg queue IDs
+     */
+    msgTransactions = (int*) malloc(conf[SO_NODES_NUM] * sizeof(int));
+    /* Initializes seed for the random number generation */ 
+    srand(time(NULL));
+}
+
+/* Gets the configuration and write it in shared memory */
+void init_conf()
+{
     /* Creating the shared memory segment */
-    shmConfig = shmget(SHM_ENV_KEY, sizeof(unsigned long) * N_RUNTIME_CONF_VALUES,
-                       IPC_CREAT | IPC_EXCL | 0666);
-    if (shmConfig == -1)
-    {
-        MSG_ERR("main: shmConfig, error while creating the shared memory segment.");
+    shmConfig = shmget( SHM_ENV_KEY, 
+                        sizeof(unsigned long) * N_RUNTIME_CONF_VALUES, 
+                        IPC_CREAT | IPC_EXCL | 0666);
+    if (shmConfig == -1){
+        MSG_ERR("master.init(): shmConfig, error while creating the shared memory segment.");
         perror("\tshmConfig");
-        shutdown();
-        exit(EXIT_FAILURE);
+        shutdown(EXIT_FAILURE);
     }
 
     conf = shmat(shmConfig, NULL, 0);
 
     /* Gets conf from Env variables, Writes configuration to shared memory */
-    if (get_configuration(conf) == 0)
-    {
-        MSG_ERR("main: get_configuration, error while loading source file.");
-        shutdown();
-        exit(EXIT_FAILURE);
-    };
+    get_configuration(conf);
+}
 
+/* Creates the semaphores and initializes them */
+void init_semaphores()
+{
     semUsers = semget(SEM_USER_KEY, 3, IPC_CREAT | 0666);
-    if (semUsers == -1)
-    {
-        MSG_ERR("main: semUsers, error while creating the semaphore.");
+    if(semUsers == -1){
+		MSG_ERR("master.init(): semUsers, error while creating the semaphore.");
         perror("\tsemUsers");
         shutdown();
         exit(EXIT_FAILURE);
     }
 
-    semNodes = semget(SEM_NODE_KEY, 3, IPC_CREAT | 0666);
-    if (semNodes == -1)
-    {
-        MSG_ERR("main: semNodes, error while creating the semaphore.");
+	semNodes = semget(SEM_NODE_KEY, 3, IPC_CREAT | 0666);
+    if(semNodes == -1){
+		MSG_ERR("master.init(): semNodes, error while creating the semaphore.");
         perror("\tsemNodes");
         shutdown();
         exit(EXIT_FAILURE);
     }
 
-    semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
-    if (semLibroMastro == -1)
-    {
-        MSG_ERR("main: semLibroMastro, error while creating the semaphore.");
+	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
+    if(semLibroMastro == -1){
+		MSG_ERR("master.init(): semLibroMastro, error while creating the semaphore.");
         perror("\tsemLibroMastro");
         shutdown();
         exit(EXIT_FAILURE);
     }
 
-    semSimulazione = semget(SEM_SIM_KEY, 1, IPC_CREAT | 0666);
-    if (semSimulazione == -1)
-    {
-        MSG_ERR("main: semSimulazione, error while creating the semaphore.");
+    semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, IPC_CREAT | 0666);
+    if(semBlockNumber == -1){
+		MSG_ERR("master.init(): semBlockNumber, error while creating the semaphore.");
+        perror("\tsemBlockNumber");
+		shutdown(EXIT_FAILURE);
+	}
+
+    semSimulation = semget(SEM_SIM_KEY, 1, IPC_CREAT | 0666);
+    if(semSimulation == -1){
+		MSG_ERR("master.init(): semSimulation, error while creating the semaphore.");
         perror("\tsemSimulazione");
         shutdown();
         exit(EXIT_FAILURE);
@@ -137,8 +233,8 @@ int main(int argc, char **argv)
     if(initSemInUse(semLibroMastro, 0) == -1)
         perror("initSemInUse(semLibroMastro, 2) ");
 
-    if( initSemSimulation(semSimulazione, 0) == -1)
-        perror("initSemSimulation(semSimulazione, 0) ");*/
+    if( initSemSimulation(semSimulation, 0) == -1)
+        perror("initSemSimulation(semSimulation, 0) ");*/
 
     initSemAvailable(semUsers, 0);
     initSemAvailable(semUsers, 1);
@@ -152,55 +248,159 @@ int main(int argc, char **argv)
     initSemAvailable(semLibroMastro, 1);
     initSemInUse(semLibroMastro, 2);
 
-    initSemSimulation(semSimulazione, 0, conf[SO_USERS_NUM], conf[SO_NODES_NUM]);
+    initSemSimulation(semSimulation, 0, conf[SO_USERS_NUM], 
+                      conf[SO_NODES_NUM]);
 
+    initSemAvailable(semBlockNumber, 0);
+}
+
+/* Creates the shmem segments */
+void init_sharedmem()
+{
     /* Creating shmem segment for Users */
-    shmUsers = shmget(SHM_USER_KEY, sizeof(user) * conf[SO_USERS_NUM], IPC_CREAT | IPC_EXCL | 0666);
-    if (shmUsers == -1)
-    {
-        MSG_ERR("main: shmUsers, error while creating the shared memory segment.");
+    shmUsers = shmget(  SHM_USER_KEY, 
+                        sizeof(user) * conf[SO_USERS_NUM], 
+                        IPC_CREAT | IPC_EXCL | 0666);
+    if (shmUsers == -1){
+		MSG_ERR("master.init(): shmUsers, error while creating the shared memory segment.");
         perror("\tshmUsers");
-        shutdown();
-        exit(EXIT_FAILURE);
-    }
+		shutdown(EXIT_FAILURE);
+	}
+    shmUsersArray = (user *)shmat(shmUsers, NULL, 0);
 
     /* Creating shmem segment for Nodes */
-    shmNodes = shmget(SHM_NODE_KEY, sizeof(node) * conf[SO_NODES_NUM], IPC_CREAT | IPC_EXCL | 0666);
-    if (shmNodes == -1)
-    {
-        MSG_ERR("main: shmNodes, error while creating the shared memory segment.");
-        perror("\tsemNodes");
-        shutdown();
-        exit(EXIT_FAILURE);
-    }
+    shmNodes = shmget(  SHM_NODE_KEY, 
+                        sizeof(node) * conf[SO_NODES_NUM], 
+                        IPC_CREAT | IPC_EXCL | 0666);
+    if (shmNodes == -1){
+		MSG_ERR("master.init(): shmNodes, error while creating the shared memory segment.");
+        perror("\tshmNodes");
+		shutdown(EXIT_FAILURE);
+	}
+    shmNodesArray = (node *)shmat(shmNodes, NULL, 0);
 
     /* Creating shmem segment for the Libro Mastro */
-    shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, sizeof(transaction[SO_REGISTRY_SIZE][SO_BLOCK_SIZE]),
+    shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, 
+                            sizeof(block) * SO_REGISTRY_SIZE,
                             IPC_CREAT | IPC_EXCL | 0666);
-    if (shmLibroMastro == -1)
-    {
-        MSG_ERR("main: shmLibroMastro, error while creating the shared memory segment.");
-        perror("\tsemLibroMastro");
-        shutdown();
-        exit(EXIT_FAILURE);
-    }
+    if (shmLibroMastro == -1){
+		MSG_ERR("master.init(): shmLibroMastro, error while creating the shared memory segment.");
+        perror("\tshmLibroMastro");
+		shutdown(EXIT_FAILURE);
+	}
+    libroMastroArray = (block *)shmat(shmLibroMastro, NULL, 0);
 
-    msgTransactions = msgget(MSG_TRANS_KEY, IPC_CREAT | IPC_EXCL | 0666);
-    if (msgTransactions == -1)
-    {
-        MSG_ERR("main: msgTransactions, error while creating the message queue.");
-        perror("\tmsgTransactions");
-        shutdown();
-        exit(EXIT_FAILURE);
-    }
+    /* Creating shmem segment for the libro mastro's block number */
+    shmBlockNumber = shmget(SHM_BLOCK_NUMBER, 
+                            sizeof(unsigned int), 
+                            IPC_CREAT | IPC_EXCL | 0666);
+    if (shmBlockNumber == -1){
+		MSG_ERR("master.init(): shmBlockNumber, error while creating the shared memory segment.");
+        perror("\tshmBlockNumber");
+		shutdown(EXIT_FAILURE); 
+	}
+    /* Block number initialization */
+    block_number = (unsigned int *)shmat(shmBlockNumber, NULL, 0);
+    *block_number = 0;
+}
 
-    /*atexit(shutdown);*/
+/* Reads the environment variables for the configuration  */
+void get_configuration(unsigned long * conf)
+{
+    /* used to read env variables */
+	char *env_var_val = NULL;
+    /* used to detect errors when converting str to ulong */
+	char *chk_strtol_err = NULL;
+	char i = 0;
+#ifdef DEBUG
+	MSG_INFO2("Checking compile time parameters...");
+#endif
+	/* Check compile time parameters */
+#ifndef SO_BLOCK_SIZE
+	MSG_ERR("SO_BLOCK_SIZE is not defined!");
+	exit(EXIT_FAILURE);
+#endif
+#ifndef SO_REGISTRY_SIZE
+	MSG_ERR("SO_REGISTRY_SIZE is not defined!");
+	exit(EXIT_FAILURE);
+#endif
+#ifdef DEBUG
+	printf("---------------------------------------------------\n");
+	printf("|                   COMPILE TIME                  |\n");
+	printf("---------------------------------------------------\n");
+	printf("|    SO_BLOCK_SIZE             |    %10u    |\n", SO_BLOCK_SIZE);
+	printf("|    SO_REGISTRY_SIZE          |    %10u    |\n", SO_REGISTRY_SIZE);
+	printf("---------------------------------------------------\n");
+	MSG_OK("Compile time parameters exist!");
+	MSG_INFO2("Checking run time parameters...");
+	printf("---------------------------------------------------\n");
+	printf("|                   RUNNING TIME                  |\n");
+	printf("---------------------------------------------------\n");
+#endif
+	for (i = SO_USERS_NUM; i < N_RUNTIME_CONF_VALUES; i++) {
+		if(env_var_val = getenv(conf_names[i])){
+			errno = 0;
+			conf[i] = strtoul(env_var_val, &chk_strtol_err, 10);
+			/* check conversion */
+			if((conf[i] == 0 && (errno == EINVAL || errno == ERANGE)) 
+                || env_var_val == chk_strtol_err) {
+				fprintf(stderr, "[%sERROR%s] Could not convert env variable %s to an unsigned long\n",
+						COLOR_RED, COLOR_FLUSH, conf_names[i]);
+				exit(EXIT_FAILURE);
+			}
+			/* check valid number */
+			if(i == SO_MAX_TRANS_GEN_NSEC && conf[SO_MAX_TRANS_GEN_NSEC] 
+                < conf[SO_MIN_TRANS_GEN_NSEC]) {
+				MSG_ERR("SO_MAX_TRANS_GEN_NSEC is lower than SO_MIN_TRANS_GEN_NSEC!");
+				exit(EXIT_FAILURE);
+			} else if(i == SO_MAX_TRANS_PROC_NSEC 
+                        && conf[SO_MAX_TRANS_PROC_NSEC] 
+                        < conf[SO_MIN_TRANS_PROC_NSEC]) {
+				MSG_ERR("SO_MAX_TRANS_PROC_NSEC is lower than SO_MIN_TRANS_PROC_NSEC!");
+				exit(EXIT_FAILURE);
+			} else if(i == SO_TP_SIZE && conf[SO_TP_SIZE] <= SO_BLOCK_SIZE) {
+				MSG_ERR("SO_TP_SIZE is not bigger than SO_BLOCK_SIZE!");
+				exit(EXIT_FAILURE);
+			} else if(i == SO_REWARD && (conf[SO_REWARD] < 0 
+                        || conf[SO_REWARD] > 100)) {
+				MSG_ERR("SO_REWARD is out range [0-100]!");
+				exit(EXIT_FAILURE);
+			}
+		} else {
+			fprintf(stderr, "[%sERROR%s] Undefined environment variable %s. Make sure to load env. variables first!\n"
+							"        Example: source cfg/custom.cfg\n",
+						COLOR_RED, COLOR_FLUSH, conf_names[i]);
+			exit(EXIT_FAILURE);
+		}
+	}
+#ifdef DEBUG
+	i = SO_USERS_NUM;
+	printf("|    SO_USERS_NUM              |    %10u    |\n", conf[i++]);
+	printf("|    SO_NODES_NUM              |    %10u    |\n", conf[i++]);
+	printf("|    SO_BUDGET_INIT            |    %10u    |\n", conf[i++]);
+	printf("|    SO_REWARD                 |    %10u    |\n", conf[i++]);
+	printf("|    SO_MIN_TRANS_GEN_NSEC     |    %10u    |\n", conf[i++]);
+	printf("|    SO_MAX_TRANS_GEN_NSEC     |    %10u    |\n", conf[i++]);
+	printf("|    SO_RETRY                  |    %10u    |\n", conf[i++]);
+	printf("|    SO_TP_SIZE                |    %10u    |\n", conf[i++]);
+	printf("|    SO_MIN_TRANS_PROC_NSEC    |    %10u    |\n", conf[i++]);
+	printf("|    SO_MAX_TRANS_PROC_NSEC    |    %10u    |\n", conf[i++]);
+	printf("|    SO_SIM_SEC                |    %10u    |\n", conf[i++]);
+	printf("|    SO_FRIENDS_NUM            |    %10u    |\n", conf[i++]);
+	printf("|    SO_HOPS                   |    %10u    |\n", conf[i]);
+	printf("---------------------------------------------------\n");
+	MSG_OK("Running time parameters retrieved successfully!");
+	printf("Press any button to continue...");
+	getchar();
+#endif
+}
 
-    /* Init seed for the random number generation */
-    srand(time(NULL));
-    set_handler(SIGINT, shutdown);
+/* Generates user child processes and initializes their shmem data structures */
+void users_generation()
+{
+    pid_t child_pid; /* child_pid is used for the fork */
+    int i=0, j=0, k=0;
 
-    /* User creating loop */
     for (i = 0; i < conf[SO_USERS_NUM]; i++)
     {
         child_pid = fork();
@@ -215,45 +415,32 @@ int main(int argc, char **argv)
 
             /* Shmem write */
             initWriteInShm(semUsers);
-            shmUsersArray = (user *)shmat(shmUsers, NULL, 0);
-            if (shmat(shmUsers, NULL, 0) == (void *)-1)
-                perror("shmUsersArray shmat ");
             if (shmUsersArray[i].pid == 0)
             {
                 shmUsersArray[i].pid = getpid();
                 shmUsersArray[i].budget = conf[SO_BUDGET_INIT];
             }
             printf("Child put %d in shmUsers[%d]\n", getpid(), i);
-            shmdt((void *)shmUsersArray);
-            if (shmUsersArray == (void *)-1)
-                perror("shmUsersArray shmdt ");
             endWriteInShm(semUsers);
 
             /* Shmem read of user pids and budgets */
             initReadFromShm(semUsers);
-            shmUsersArray = shmat(shmUsers, NULL, 0);
-            if (shmUsersArray == (void *)-1)
-                perror("shmUsersArray shmat ");
             for (k = 0; k < conf[SO_USERS_NUM]; k++)
             {
-                printf("shmUsers[%d] value : %d, con budget %d\n", k, shmUsersArray[k].pid,
-                       shmUsersArray[k].budget);
+                printf("shmUsers[%d] value : %d, con budget %d\n", k, 
+                            shmUsersArray[k].pid, 
+                            shmUsersArray[k].budget);
             }
-            shmdt((void *)shmUsersArray);
-            if (shmUsersArray == (void *)-1)
-                perror("shmUsersArray shmdt ");
             endReadFromShm(semUsers);
 
             /* Waiting that the nodes and the users are ready and active */
-            reserveSem(semSimulazione, 0);
-            while (semctl(semSimulazione, 0, GETVAL, 0) != 0)
+            reserveSem(semSimulation, 0);
+            while (semctl(semSimulation, 0, GETVAL, 0) != 0)
                 sleep(1);
 
-            /* printf("user - non manca più nessuno !\n"); */
+            execve("./bin/user", NULL, NULL);
 
-            execve("./bin/user", argv, NULL);
-
-            exit(0);
+            /* exit(EXIT_SUCCESS); */
             break;
         default:
             /* father branch */
@@ -261,13 +448,17 @@ int main(int argc, char **argv)
             break;
         }
     }
+}
 
-    /* Nodes creating loop */
-    for (i = 0; i < conf[SO_NODES_NUM]; i++)
-    {
+/* Generates node child processes and initializes their shmem data structures */
+void nodes_generation()
+{
+    pid_t child_pid; /* child_pid is used for the fork */
+    int i=0, j=0, k=0;
+
+    for (i = 0; i < conf[SO_NODES_NUM]; i++){
         child_pid = fork();
-        switch (child_pid)
-        {
+        switch (child_pid){
         case -1:
             perror("Fork node error ");
             exit(0);
@@ -277,103 +468,246 @@ int main(int argc, char **argv)
 
             /* Shmem write */
             initWriteInShm(semNodes);
-            shmNodesArray = (node *)shmat(shmNodes, NULL, 0);
-            if (shmNodesArray == (void *)-1)
-                perror("shmNodesArray shmat ");
             if (shmNodesArray[i].pid == 0)
             {
                 shmNodesArray[i].pid = getpid();
                 shmNodesArray[i].reward = 0;
             }
             printf("Child put %d in shmNodes[%d]\n", getpid(), i);
-            shmdt((void *)shmNodesArray);
-            if (shmNodesArray == (void *)-1)
-                perror("shmNodesArray shmdt ");
             endWriteInShm(semNodes);
 
             /* Shmem read for Node pids and reward */
             initReadFromShm(semNodes);
-            shmNodesArray = shmat(shmNodes, NULL, 0);
             for (k = 0; k < conf[SO_NODES_NUM]; k++)
             {
-                printf("shmNodes[%d] value : %d, con reward %d\n", k, shmNodesArray[k].pid,
-                       shmNodesArray[k].reward);
+                printf("shmNodes[%d] value : %d, con reward %d\n", k, 
+                            shmNodesArray[k].pid, 
+							shmNodesArray[k].reward);
             }
-            shmdt((void *)shmNodesArray);
             endReadFromShm(semNodes);
 
             /* Waiting that the other nodes are ready and active */
-            reserveSem(semSimulazione, 0);
-            while (semctl(semSimulazione, 0, GETVAL, 0) != 0)
-                sleep(1);
+            reserveSem(semSimulation, 0);
+            while (semctl(semSimulation, 0, GETVAL, 0) != 0)
+               sleep(1);
 
-            /* printf("nodi - non manca più nessuno !\n"); */
-            exit(0);
+            msgTransactions[i] = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), 
+                                            IPC_CREAT | IPC_EXCL | 0666);
+            if(msgTransactions == (void *) -1){
+                MSG_ERR("main: msgTransactions, error while creating the message queue.");
+                perror("\tmsgTransactions");
+                shutdown(EXIT_FAILURE);
+            }
+
+            /* execve() dei nodi */ 
+            execve("./bin/node", NULL, NULL);
+
+            /* exit(EXIT_SUCCESS); */
             break;
         default:
             /* father branch */
             break;
         }
     }
+}
 
-    /* Attesa del semaforo per far partire la simulazione */
+#pragma endregion /* INITIALIZATION */
 
-    /* Attesa che tutti i figli siano siano conclusi */
-    while (wait(NULL) != -1)
-        ;
+/* -------------------- LIFETIME FUNCTIONS -------------------- */
 
-    /*printf("lm! write %d\n", semctl(semLibroMastro, 0, GETVAL, 0));
-    printf("lm! mutex %d\n", semctl(semLibroMastro, 1, GETVAL, 0));
-    printf("lm! readers %d\n", semctl(semLibroMastro, 2, GETVAL, 0));
+#pragma region LIFETIME_AND_SIGNAL_HANDLERS
 
-    printf("user! write %d\n", semctl(semUsers, 0, GETVAL, 0));
-    printf("user! mutex %d\n", semctl(semUsers, 1, GETVAL, 0));
-    printf("user! readers %d\n", semctl(semUsers, 2, GETVAL, 0));
+/* TODO: read PDF for print_stats() details */
+/* Prints the useful stats in lifetime, Prints all the info before exit() */
+void print_stats(int force_print)
+{
+    int i = 0, j = 0;
+    if(force_print){
+        initReadFromShm(semUsers);
+        printf("\n\n===============USERS==============\n");
+        for(i = 0; i < conf[SO_USERS_NUM]; i++){
+            printf("\tPID:%d\n", shmUsersArray[i].pid);
+            printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
+        }
+        endReadFromShm(semUsers);
 
-    printf("nodes! write %d\n", semctl(semNodes, 0, GETVAL, 0));
-    printf("nodes! mutex %d\n", semctl(semNodes, 1, GETVAL, 0));
-    printf("nodes! readers %d\n", semctl(semNodes, 2, GETVAL, 0));*/
+        initReadFromShm(semLibroMastro);
+        initReadFromShm(semBlockNumber);
+        printf("\n\n===============BLOCKCHAIN==============\n");
+        printf("# of blocks: %d\n", *block_number);
 
-    shmdt((void *)conf);
-    if (conf == (void *)-1)
-    {
-        MSG_ERR("main: conf, error while detaching the configuration shmem segment.");
-        shutdown();
-        exit(EXIT_FAILURE);
+        for(i = 0; i < *block_number; i++){
+            printf("Block #%d:\n", i);
+            for(j = 0; j < SO_BLOCK_SIZE; j++){
+                printf("\tTransaction #%d: t=%d\t snd=%d\t rcv=%d\t qty=%d\t rwd=%d\n",
+                        j, libroMastroArray[i].transBlock[j].timestamp,
+                        libroMastroArray[i].transBlock[j].sender,
+                        libroMastroArray[i].transBlock[j].receiver,
+                        libroMastroArray[i].transBlock[j].quantity,
+                        libroMastroArray[i].transBlock[j].reward);
+            }
+        }
+        endReadFromShm(semBlockNumber);
+        endReadFromShm(semLibroMastro);
     }
-
-    /* gestione CTRL+C e altri segnali */
-    /*set_handler(SIGTERM, &sigterm_handler);*/
-    
-
-    shutdown();
-    exit(EXIT_SUCCESS);
-    return 0;
+    else{
+        initReadFromShm(semUsers);
+        printf("\n\n===============USERS==============\n");
+        for(i = 0; i < conf[SO_USERS_NUM]; i++){
+            printf("\tPID:%d\n", shmUsersArray[i].pid);
+            printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
+        }
+        endReadFromShm(semUsers);
+    }
 }
 
-/* non funge */
-void sigterm_handler(int signum)
+/* -------------------- SIGNAL HANDLERS -------------------- */
+/* TODO: think of the SIGTERM, SIGINT handlers */
+/* Debug signal */
+void sigterm_handler(int signum) 
 {
-    fprintf(stdout, "[%sINFO%s] Ricevuto il segnale %s, arresto la simulazione\n",
-            COLOR_YELLOW, COLOR_FLUSH, strsignal(signum));
-    shutdown();
-    exit(EXIT_SUCCESS);
+	fprintf(stdout, 
+            "[INFO] Ricevuto il segnale %s, arresto la simulazione\n",
+            strsignal(signum));
+    clean_end();
 }
 
-/* procedura di terminazione, clear IPC, ... */
-void shutdown()
+/* Received when the blockchain is full */
+void sigusr1_handler(int signum)
 {
-    printf("\nEhi sono il master guarda che sto uscendo...");
-    /* Rimozione IPC */
-    shmctl(shmUsers, IPC_RMID, NULL);
-    shmctl(shmNodes, IPC_RMID, NULL);
-    shmctl(shmLibroMastro, IPC_RMID, NULL);
-    shmctl(shmConfig, IPC_RMID, NULL);
-
-    semctl(semUsers, 0, IPC_RMID, 0);
-    semctl(semNodes, 0, IPC_RMID, 0);
-    semctl(semLibroMastro, 0, IPC_RMID, 0);
-    semctl(semSimulazione, 0, IPC_RMID, 0);
-
-    msgctl(msgTransactions, IPC_RMID, NULL);
+    /* Reason (1) for termination: The blockchain is full */
+    printf("Ending simulation: The blockchain is full -> [%d/%ld]\n", 
+            *block_number, SO_REGISTRY_SIZE);
+    clean_end();
 }
+
+/* Received when the SO_SIM_SEC timer ends */
+void sigalrm_handler(int signum)
+{
+    /* Reason (2) for termination: Expired SO_SIM_SEC timer */
+    printf("Ending simulation: The execution lasted SO_SIM_SEC=%ld seconds.\n",
+            conf[SO_SIM_SEC]);
+    clean_end();
+}
+
+/* Received when a child process dies */
+void sigchld_handler(int signum)
+{
+    /* Only user child processes can die */
+    remaining_users--;
+    if(remaining_users == 0){
+        /* Reason (3) for termination: All the users stopped their execution */
+        printf("Ending simulation: No more active users.\n");
+        clean_end();
+    }
+}
+
+#pragma endregion /* LIFETIME_AND_SIGNAL_HANDLERS */
+
+/* -------------------- TERMINATION FUNCTIONS -------------------- */
+
+#pragma region TERMINATION
+/* TODO: Maybe add multiple shutdown functions, 1 for each IPC obj */
+/* Kills all the child processes */
+void send_kill_signals()
+{
+    int i = 0;
+
+    /* For each PID in Users array, send signal */
+    initReadFromShm(shmUsers);
+    for(i = 0; i < conf[SO_USERS_NUM]; i++) {
+        /* if the User is still alive, send the SIGINT signal */
+        if(!kill(shmUsersArray[i].pid, 0)) {
+            printf("Killing user %d...\n", shmUsersArray[i].pid);
+            kill(shmUsersArray[i].pid, SIGINT);
+        }
+    }
+    endReadFromShm(shmUsers);
+
+    /* For each PID in Nodes array, send signal */
+    initReadFromShm(shmNodes);
+    for(i = 0; i < conf[SO_NODES_NUM]; i++) {
+        /* if the Node is still alive, send the SIGINT signal */
+        if(!kill(shmNodesArray[i].pid, 0)) {
+            printf("killing node %d...\n", shmNodesArray[i].pid);
+            kill(shmNodesArray[i].pid, SIGINT);
+        }
+    }
+    endReadFromShm(shmNodes);
+}
+
+/* Clears all IPC objects, Memory free, exit */
+void shutdown(int status) 
+{
+    int i = 0;
+
+    /* detach the shmem for the last block number */
+    shmdt((void *)block_number);
+    if(block_number == (void *) -1){
+        MSG_ERR("master.shutdown(): block_number, error while detaching "
+                "the block_number shmem segment.");
+	}
+
+    /* detach the shmem for the shmUsersArray */
+    shmdt((void *)shmUsersArray);
+    if(shmUsersArray == (void *) -1){
+        MSG_ERR("master.shutdown(): shmUsersArray, error while detaching "
+                "the shmUsersArray shmem segment.");
+	}
+
+    /* detach the shmem for the shmNodesArray */
+    shmdt((void *)shmNodesArray);
+    if(shmNodesArray == (void *) -1){
+        MSG_ERR("master.shutdown(): shmNodesArray, error while detaching "
+                "the shmNodesArray shmem segment.");
+	}
+
+    /* detach the shmem for the Libro Mastro */
+    shmdt((void *)libroMastroArray);
+    if(libroMastroArray == (void *) -1){
+        MSG_ERR("master.shutdown(): libroMastroArray, error while detaching "
+                "the libroMastroArray shmem segment.");
+	}
+
+	/* Rimozione IPC */
+	shmctl(shmUsers, IPC_RMID, NULL);
+	shmctl(shmNodes, IPC_RMID, NULL);
+	shmctl(shmLibroMastro, IPC_RMID, NULL);
+	shmctl(shmBlockNumber, IPC_RMID, NULL);
+
+	semctl(semUsers, 0, IPC_RMID, 0);
+	semctl(semNodes, 0, IPC_RMID, 0);
+	semctl(semLibroMastro, 0, IPC_RMID, 0);
+	semctl(semSimulation, 0, IPC_RMID, 0);
+	semctl(semBlockNumber, 0, IPC_RMID, 0);
+
+    /* Removing Msg Queues */
+    for(i=0; i < conf[SO_NODES_NUM]; i++)
+	    msgctl(msgTransactions[i], IPC_RMID, NULL);
+    free(msgTransactions);
+
+    /* detach the shmem of the conf */
+    shmdt((void *)conf);
+    if(conf == (void *) -1){
+        MSG_ERR("master.shutdown(): conf, error while detaching "
+                "the configuration shmem segment.");
+	}
+	shmctl(shmConfig, IPC_RMID, NULL);
+
+    exit(status);
+}
+
+/* Kills all the child processes still alive, prints the simulation stats,
+    removes IPC Object and terminates the master process */
+void clean_end()
+{
+    send_kill_signals();
+
+    /* Attesa che tutti i figli siano conclusi */
+    while (wait(NULL) != -1);
+
+    print_stats(FORCE_PRINT_STATS);
+    shutdown(EXIT_SUCCESS);
+}
+
+#pragma endregion /* TERMINATION */

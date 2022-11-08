@@ -42,15 +42,19 @@
 #define SHM_USER_KEY 1004
 #define SHM_NODE_KEY 1826
 #define SHM_LIBROMASTRO_KEY 9001
-#define SHM_ENV_KEY 98120
+#define SHM_ENV_KEY 9800
+#define SHM_BLOCK_NUMBER 88888
 
 #define SEM_USER_KEY 76543
 #define SEM_NODE_KEY 2009
 #define SEM_LIBROMASTRO_KEY 65432
 #define SEM_SIM_KEY 82141
+#define SEM_BLOCK_NUMBER 88889
 
 #define MSG_TRANS_KEY 62132
 #define FTOK_PATHNAME_NODE "./bin/node"
+
+#define TRANS_REWARD_SENDER -1
 
 union semun
 {
@@ -67,31 +71,50 @@ union semun
 /* Users type */
 typedef struct
 {
-    int pid;
+    pid_t pid;
     int budget;
 } user;
 
-/* Ndoes type */
+/* Nodes type */
 typedef struct
 {
-    int pid;
+    pid_t pid;
     int reward;
 } node;
 
 /* Transaction type */
 typedef struct
 {
-    double timestamp;
+    int timestamp;
     int sender;
     int receiver;
     int quantity;
     int reward;
 } transaction;
 
-typedef struct {
+/* MsgQueue message */
+typedef struct{
     long mtype;
     transaction trans;
 } msgbuf;
+
+/* Block for Libro Mastro */
+typedef struct
+{
+    unsigned int block_number;
+    transaction transBlock[SO_BLOCK_SIZE];
+} block;
+
+/* configuration */
+#define N_RUNTIME_CONF_VALUES 13
+#define N_COMPILETIME_CONF_VALUES 2
+
+enum conf_index {
+	SO_USERS_NUM, SO_NODES_NUM, SO_BUDGET_INIT, SO_REWARD, 
+	SO_MIN_TRANS_GEN_NSEC, SO_MAX_TRANS_GEN_NSEC, SO_RETRY, 
+	SO_TP_SIZE, SO_MIN_TRANS_PROC_NSEC, SO_MAX_TRANS_PROC_NSEC, 
+	SO_SIM_SEC, SO_FRIENDS_NUM, SO_HOPS
+};
 
 /*** Semaphore Management ***/
 
@@ -110,7 +133,12 @@ void reset_signals(sigset_t old_mask);
 struct sigaction set_handler(int sig, void (*func)(int));
 
 /*** Shared Memory Management ***/
-
+/* 
+ * Semaphore values:
+ *      0 write
+ *      1 mutex
+ *      2 readcount
+ */
 void initReadFromShm(int);
 void endReadFromShm(int);
 void initWriteInShm(int);
@@ -118,7 +146,7 @@ void endWriteInShm(int);
 
 /*** Random Number Utility ***/
 
-int randomNum(int, int);
+int randomNum(int min, int max);
 
 
 #define N_RUNTIME_CONF_VALUES 13

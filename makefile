@@ -1,8 +1,8 @@
 ###############################
 # Custom configuration values #
 ###############################
-SO_BLOCK_SIZE = 10
-SO_REGISTRY_SIZE = 100
+SO_BLOCK_SIZE = 5
+SO_REGISTRY_SIZE = 2
 
 # MACRO DECLARATION
 # Custom configuration
@@ -57,11 +57,11 @@ all: check_folders bin/master bin/node bin/user
 build/%.o: src/%.c $(COMMON_DEPS)
 	$(CC) $(CFLAGS) $(PROJ_CONF) -c $< -o $@ $(LDFLAGS)
 
-bin/master: build/master.o build/common.o $(COMMON_DEPS)
+bin/master: build/common.o build/master.o $(COMMON_DEPS)
 	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/master build/master.o build/common.o $(LDFLAGS)
 
-bin/node: build/node.o $(COMMON_DEPS)
-	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/node build/node.o $(LDFLAGS)
+bin/node: build/node.o build/common.o $(COMMON_DEPS)
+	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/node build/node.o build/common.o $(LDFLAGS)
 
 bin/user: build/user.o build/common.o $(COMMON_DEPS)
 	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/user build/user.o build/common.o $(LDFLAGS)

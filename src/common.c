@@ -189,9 +189,9 @@ void endReadFromShm(int semId)
  * **/
 void initWriteInShm(int semId)
 {
-	while (semctl(semId, 0, GETVAL, 0) == 0)
-		;
-	reserveSem(semId, 0);
+    while (semctl(semId, 0, GETVAL, 0) == 0)
+        ;
+    reserveSem(semId, 0);
 }
 
 void endWriteInShm(int semId)
