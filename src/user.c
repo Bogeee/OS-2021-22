@@ -15,6 +15,10 @@ void init_semaphores();
 /* Lifetime */
 int createTransaction();
 void getBilancio();
+void addToPendingList(transaction tr);
+void printPendingList();
+void removeFromPendingList(transaction tr);
+void freePendingList();
 
 /* Signal Handlers */
 void sigusr1_handler();
@@ -48,16 +52,18 @@ int semUsers;        /* Semaphore for shmem access on the Array of User PIDs */
 int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semBlockNumber;  /* Semaphore for the last block number */
 
-int bilancio; /* User's budget */
+int bilancio;    /* User's budget */
+struct pendingTr *pendingList; /* List of unprocessed transactions */
 
 int main(int argc, char **argv)
 {
-    /* TODO: check shmat, init, libromastroArray */
     int fails = 0;  /* used with SO_RETRY */
     
     init();
 
-	printf("user.main(): Ready to create transactions...\n");
+#ifdef DEBUG
+	printf("[INFO] user.main(%d): Ready to create transactions...\n", getpid());
+#endif
 
     /* Starting user loop */
     while (fails < conf[SO_RETRY])
@@ -70,8 +76,9 @@ int main(int argc, char **argv)
         } else
             fails++;
     }
-	printf("user.main(%d): Too many fails...\n", getpid());
-    kill(getppid(), SIGCHLD);
+#ifdef DEBUG
+	printf("[INFO] user.main(%d): Too many fails...\n", getpid());
+#endif
     return 0;
 }
 
@@ -80,6 +87,10 @@ int main(int argc, char **argv)
 /* Accessing all the required IPC objects, setting the signal handlers */
 void init()
 {
+    struct timespec t;
+    t.tv_sec = 1;
+    t.tv_nsec = 0;
+
 	init_conf();
 	init_semaphores();
 	init_sharedmem();
@@ -90,9 +101,14 @@ void init()
     /* Initializes the User's budget */
     bilancio = conf[SO_BUDGET_INIT];
 
+    /* Create pending transactions list */
+    pendingList = NULL;
+
 	/* Master wants to kill the node */
     set_handler(SIGUSR1, sigusr1_handler);
     set_handler(SIGINT,  sigint_handler);
+
+    nanosleep(&t,&t);
 }
 
 /* Accessing the configuration shared memory segment in READ ONLY */
@@ -218,23 +234,28 @@ int createTransaction()
 
     msgTrans = msgget(ftok(FTOK_PATHNAME_NODE, randomNodePID), 0666);
 
-    nodeReward = randomQuantity * conf[SO_REWARD] / 100;
+    nodeReward = (int)(randomQuantity * conf[SO_REWARD] / 100);
+    if(nodeReward == 0)
+        nodeReward = 1;
+
     randomQuantity -= nodeReward;
 
     newTr.quantity = randomQuantity;
     newTr.receiver = randomReceiverPID;
     newTr.reward = nodeReward;
     newTr.sender = getpid();
-    newTr.timestamp = (int)time(NULL);
+    newTr.timestamp = time(NULL);
+/*     (int)clock_gettime(CLOCK_REALTIME, &tempo); */
 
     msg.trans = newTr;
     msg.mtype = 1;
-    /* TODO : Invia al nodo = carica nel msgQueue del nodo */
+
     if(msgsnd(msgTrans, &msg, sizeof(msgbuf), IPC_NOWAIT) < 0)
     {
         return 0;
     } else {
-        bilancio -= (randomQuantity + nodeReward);
+        addToPendingList(newTr);
+        /* printPendingList(); */
         tempo.tv_sec = 0;
         tempo.tv_nsec = randomNum(conf[SO_MIN_TRANS_GEN_NSEC], conf[SO_MAX_TRANS_GEN_NSEC]);
         nanosleep(&tempo, &tempo);
@@ -247,28 +268,34 @@ void getBilancio()
 {
     /* calcolo bilancio - lettura with and readers solution */
     int i = 0, j = 0; 
+    struct pendingTr *head = pendingList;
+
+    bilancio = conf[SO_BUDGET_INIT];
 
     initReadFromShm(semBlockNumber);
     initReadFromShm(semLibroMastro);
-    if(*block_number)
-        bilancio = conf[SO_BUDGET_INIT];
     for (i = 0; i < *block_number; i++)
     {
         for (j = 0; j < SO_BLOCK_SIZE; j++)
-        {
-            /* TODO: calcolo bilancio dev'essere calcolato anche in base alle transazioni in coda
-                    contare anche i reward inviati ai nodi */
-            
-             if (libroMastroArray[i].transBlock[j].receiver == getpid())
+        {   
+            if (libroMastroArray[i].transBlock[j].receiver == getpid())
                 bilancio += libroMastroArray[i].transBlock[j].quantity;
 
-            if (libroMastroArray[i].transBlock[j].sender == getpid())
+            if (libroMastroArray[i].transBlock[j].sender == getpid()){
                 bilancio -= (libroMastroArray[i].transBlock[j].quantity
                             + libroMastroArray[i].transBlock[j].reward);
+                removeFromPendingList(libroMastroArray[i].transBlock[j]);
+            }
         }
     }
     endReadFromShm(semLibroMastro);
     endReadFromShm(semBlockNumber);
+
+    head = pendingList;
+    while(head != NULL){
+        bilancio -= (head->trans.quantity + head->trans.reward);
+        head = head->next;
+    }
 
     initWriteInShm(semNodes);
     i = 0;
@@ -276,6 +303,68 @@ void getBilancio()
         i++;
     shmUsersArray[i].budget = bilancio;
     endWriteInShm(semNodes);
+}
+
+/* Add transaction to head */
+void addToPendingList(transaction tr)
+{
+    struct pendingTr *newEl = malloc(sizeof(struct pendingTr));
+    newEl->trans = tr;
+    newEl->next = pendingList;
+    pendingList = newEl;
+}
+
+/* Print pending list for debugging purposes */
+void printPendingList()
+{
+    struct pendingTr *head = pendingList;
+    printf("\n\n");
+    while(head != NULL){
+        printf("%d:%d => ", head->trans.sender, head->trans.quantity);
+        head = head->next;
+    }
+    printf("\n\n");
+}
+
+/* Remove transaction from pending list */
+void removeFromPendingList(transaction tr)
+{
+    struct pendingTr *head = pendingList;
+    struct pendingTr *prev = NULL;
+    int found = 0;
+
+    struct pendingTr *deleted = NULL;
+
+    while(head != NULL && !found){
+        if(head->trans.timestamp == tr.timestamp 
+          && head->trans.sender == tr.sender
+          && head->trans.receiver == tr.receiver
+          && head->trans.quantity == tr.quantity
+          && head->trans.reward == tr.reward){
+            if(prev != NULL){
+                prev->next = head->next;
+            } else {
+                pendingList = head->next;
+            }
+            deleted = head;
+            found = 1;
+        } else {
+            prev = head;
+            head = head->next;
+        }
+    }
+
+    if(found)
+        free(deleted);
+}
+
+/* Free pending transactions list  */
+void freePendingList()
+{
+    if(pendingList != NULL){
+        freePendingList(pendingList->next);
+        free(pendingList);
+    }
 }
 
 /* -------------------- SIGNAL HANDLERS -------------------- */
@@ -353,6 +442,7 @@ void shutdown(int status)
     /*semctl(semSimulation, 0, IPC_RMID, 0);*/
 
     /*msgctl(msgTransactions, IPC_RMID, NULL);*/
+    freePendingList(pendingList);
     exit(status);
 }
 

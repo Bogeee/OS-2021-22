@@ -42,9 +42,6 @@ int semNodes;        /* Semaphore for shmem access on the Array of Node PIDs */
 int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semBlockNumber;  /* Semaphore for the last block number */
 
-/* TODO:
-	maschera segnali
-   TEST CODICE */
 int main()
 {
 	msgbuf msg;
@@ -57,11 +54,10 @@ int main()
 	int i = 0;
 	int sum_rewards;
 
-	/*  */
-	int j = 0;
-
 	init();
-	printf("node.main(): MSG_QUEUE Waiting for messages...\n");
+#ifdef DEBUG
+	printf("[INFO] node.main(%d): MSG_QUEUE Waiting for messages...\n", getpid());
+#endif
 	while(1){
 		
 		num_bytes = msgrcv(myTransactionsMsg, &msg, sizeof(msg), 0, 0);
@@ -73,8 +69,8 @@ int main()
 			count++;
 
 			if(count == SO_BLOCK_SIZE-1){
-#if 1
 				/* adding the reward transaction */
+				sum_rewards = 0;
 				for(i = 0; i <= count; i++){
 					sum_rewards += transSet.transBlock[i].reward;
 				}
@@ -95,7 +91,8 @@ int main()
 
 				/* processing */
 				t.tv_sec = 0;
-				t.tv_nsec = randomNum(conf[SO_MIN_TRANS_PROC_NSEC], conf[SO_MAX_TRANS_GEN_NSEC]);
+				t.tv_nsec = randomNum(conf[SO_MIN_TRANS_PROC_NSEC], 
+									  conf[SO_MAX_TRANS_GEN_NSEC]);
 				nanosleep(&t, &t);
 
 				initWriteInShm(semLibroMastro);
@@ -109,42 +106,27 @@ int main()
 					kill(getppid(), SIGUSR1);
 				}
 
-				/* initReadFromShm(semLibroMastro);
-				for(i = 0; i < *block_number; i++){
-					printf("Block #%d:\n", i);
-					for(j = 0; j < SO_BLOCK_SIZE; j++){
-						printf("\tTransaction #[%d,%d]: t=%d\t snd=%d\t rcv=%d\t qty=%d\t rwd=%d\n",
-								i,j, libroMastroArray[i].transBlock[j].timestamp,
-								libroMastroArray[i].transBlock[j].sender,
-								libroMastroArray[i].transBlock[j].receiver,
-								libroMastroArray[i].transBlock[j].quantity,
-								libroMastroArray[i].transBlock[j].reward);
-					}
-				}
-				endReadFromShm(semLibroMastro); */
-
 				endWriteInShm(semBlockNumber);
 				unblock_signals(1, SIGINT);
 				
 				/* we can start writing another block */
-#endif
 				count = 0;
 			}
 		}
 
 		/* now error handling */
 		if (errno == EINTR) {
-			fprintf(stderr, "(PID=%d): interrupted by a signal while waiting for a message of type %ld on Q_ID=%d. Trying again\n",
-				getpid(), getpid(), myTransactionsMsg);
+			fprintf(stderr, 
+					"node.main(%d): interrupted by a signal while waiting for a message "
+					"on Q_ID=%d. Trying again...\n",
+					getpid(), myTransactionsMsg);
 			continue;
 		}
 		if (errno == EIDRM) {
-			printf("The Q_ID=%d was removed. Let's terminate\n", myTransactionsMsg);
-			exit(0);
-		}
-		if (errno == ENOMSG) {
-			printf("No message of type=%ld in Q_ID=%d. Not going to wait\n", getpid(), myTransactionsMsg);
-			exit(0);
+			fprintf(stderr, "node.main(%d): The Q_ID=%d was removed. Ending!\n", 
+					getpid(),
+					myTransactionsMsg);
+			shutdown(EXIT_FAILURE);
 		}
 	}
 	
@@ -176,7 +158,7 @@ void init_conf()
 						SHM_RDONLY);
 	if (shmConfig == -1){
 		MSG_ERR("node.init(): shmConfig, error while getting the shared memory segment.");
-        perror("\tshmConfig");
+        perror("\tshmConfig ");
 		shutdown(EXIT_FAILURE);
 	}
     conf = shmat(shmConfig, NULL, 0);
@@ -188,7 +170,7 @@ void init_sharedmem()
     shmNodes = shmget(SHM_NODE_KEY, sizeof(node) * conf[SO_NODES_NUM], 0666);
 	if (shmNodes == -1){
 		MSG_ERR("node.init(): shmNodes, error while creating the shared memory segment.");
-        perror("\tshmNodes");
+        perror("\tshmNodes ");
 		shutdown(EXIT_FAILURE);
 	}
 	shmNodesArray = (node *)shmat(shmNodes, NULL, 0);
@@ -197,7 +179,7 @@ void init_sharedmem()
     shmBlockNumber = shmget(SHM_BLOCK_NUMBER, sizeof(unsigned int), 0666);
     if (shmBlockNumber == -1){
 		MSG_ERR("node.init(): shmBlockNumber, error while creating the shared memory segment.");
-        perror("\tshmBlockNumber");
+        perror("\tshmBlockNumber ");
 		shutdown(EXIT_FAILURE); 
 	}
     block_number = (unsigned int *)shmat(shmBlockNumber, NULL, 0);
@@ -208,7 +190,7 @@ void init_sharedmem()
 							0666);
     if (shmLibroMastro == -1){
 		MSG_ERR("node.init(): shmLibroMastro, error while creating the shared memory segment.");
-        perror("\tshmLibroMastro");
+        perror("\tshmLibroMastro ");
 		shutdown(EXIT_FAILURE);
 	}
 	libroMastroArray = (block *)shmat(shmLibroMastro, NULL, 0);
@@ -220,21 +202,21 @@ void init_semaphores()
 	semNodes = semget(SEM_NODE_KEY, 3, 0666);
 	if(semNodes == -1){
 		MSG_ERR("node.init(): semNodes, error while getting the semaphore.");
-        perror("\tsemNodes");
+        perror("\tsemNodes ");
 		shutdown(EXIT_FAILURE);
 	}
 
 	semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, 0666);
 	if(semBlockNumber == -1){
 		MSG_ERR("node.init(): semBlockNumber, error while getting the semaphore.");
-        perror("\tsemBlockNumber");
+        perror("\tsemBlockNumber ");
 		shutdown(EXIT_FAILURE);
 	}
 
 	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
     if(semLibroMastro == -1){
 		MSG_ERR("node.init(): semLibroMastro, error while creating the semaphore.");
-        perror("\tsemLibroMastro");
+        perror("\tsemLibroMastro ");
 		shutdown(EXIT_FAILURE);
 	}
 }
@@ -248,7 +230,7 @@ void init_msgqueue()
 	myTransactionsMsg = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), 0666);
     if(myTransactionsMsg == -1){
 		MSG_ERR("node.init(): myTransitionsMsg, error while getting the message queue.");
-        perror("\tmyTransitionsMsg");
+        perror("\tmyTransitionsMsg ");
 		shutdown(EXIT_FAILURE);
 	}
 
@@ -258,7 +240,8 @@ void init_msgqueue()
 
 	if(sizeof(msgbuf) * conf[SO_TP_SIZE] > msg_max_size_no_root){
 		MSG_ERR("node.init(): msg_queue_size, the transaction pool is bigger than the maximum msgqueue size.");
-		MSG_INFO2("node.init(): you should change the MSGMNB kernel info with root privileges.");
+		MSG_INFO2(" node.init(): you should change the MSGMNB kernel info with root privileges.");
+		kill(getppid(), SIGUSR2);
 		shutdown(EXIT_FAILURE);
 	}
 
@@ -266,7 +249,6 @@ void init_msgqueue()
 	msg_params.msg_qbytes = sizeof(msgbuf) * conf[SO_TP_SIZE];
 	msgctl(myTransactionsMsg, IPC_SET, &msg_params);
 }
-
 
 /* -------------------- SIGNAL HANDLERS -------------------- */
 

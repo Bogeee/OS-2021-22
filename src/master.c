@@ -30,6 +30,7 @@ void init();
 void init_conf();
 void init_semaphores();
 void init_sharedmem();
+void init_sighandlers();
 void get_configuration(unsigned long *conf);
 void users_generation();
 void nodes_generation();
@@ -40,6 +41,7 @@ void print_stats(int force_print);
 /* Signal Handlers  */
 void sigterm_handler(int signum);
 void sigusr1_handler(int signum);
+void sigusr2_handler(int signum);
 void sigalrm_handler(int signum);
 void sigchld_handler(int signum);
 
@@ -77,9 +79,9 @@ int semBlockNumber;  /* Semaphore for the last block number */
 /**** STATISTICAL VARIABLES ****/
 int remaining_users; /* Number of active users */
 int remaining_nodes; /* Number of active nodes */
+int is_terminating;  /* Boolean used to detect the termination */
 
-
-int main(int argc, char **argv)
+int main (int argc, char ** argv)
 {
     /* To print the stats every second */
     struct timespec t;
@@ -105,11 +107,7 @@ int main(int argc, char **argv)
      *      termination conditions.
      *      - Print stats every second. 
      */
-	set_handler(SIGTERM, sigterm_handler);
-	set_handler(SIGINT,  sigterm_handler);
-	set_handler(SIGALRM, sigalrm_handler);
-	set_handler(SIGCHLD, sigchld_handler);
-	set_handler(SIGUSR1, sigusr1_handler);
+    init_sighandlers();
 
     /* ????????????? */
     /* Attesa del semaforo per far partire la simulazione */
@@ -122,7 +120,7 @@ int main(int argc, char **argv)
     }
 
     /*
-     * (4): Clear IPC object, Memory Free, Termination are managed by
+     * (4): Clear IPC object, Memory Free, Termination is managed by
      *      the termination functions.
      */ 
 
@@ -132,7 +130,6 @@ int main(int argc, char **argv)
 /* -------------------- INITIALIZATION FUNCTIONS -------------------- */
 
 #pragma region INITIALIZATION
-/* TODO: flags 0600  */
 
 /* Wrapper function that calls the other initialization functions  */
 void init()
@@ -146,8 +143,12 @@ void init()
      * this is just the array of Msg queue IDs
      */
     msgTransactions = (int*) malloc(conf[SO_NODES_NUM] * sizeof(int));
+    
     /* Initializes seed for the random number generation */ 
-    srand(time(NULL));
+    srand(getpid()+getppid());
+
+    /* Simulation is starting */
+    is_terminating = 0;
 }
 
 /* Gets the configuration and write it in shared memory */
@@ -176,25 +177,22 @@ void init_semaphores()
     if(semUsers == -1){
 		MSG_ERR("master.init(): semUsers, error while creating the semaphore.");
         perror("\tsemUsers");
-        shutdown();
-        exit(EXIT_FAILURE);
-    }
+		shutdown(EXIT_FAILURE);
+	}
 
 	semNodes = semget(SEM_NODE_KEY, 3, IPC_CREAT | 0666);
     if(semNodes == -1){
 		MSG_ERR("master.init(): semNodes, error while creating the semaphore.");
         perror("\tsemNodes");
-        shutdown();
-        exit(EXIT_FAILURE);
-    }
+		shutdown(EXIT_FAILURE);
+	}
 
 	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
     if(semLibroMastro == -1){
 		MSG_ERR("master.init(): semLibroMastro, error while creating the semaphore.");
         perror("\tsemLibroMastro");
-        shutdown();
-        exit(EXIT_FAILURE);
-    }
+		shutdown(EXIT_FAILURE);
+	}
 
     semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, IPC_CREAT | 0666);
     if(semBlockNumber == -1){
@@ -207,9 +205,8 @@ void init_semaphores()
     if(semSimulation == -1){
 		MSG_ERR("master.init(): semSimulation, error while creating the semaphore.");
         perror("\tsemSimulazione");
-        shutdown();
-        exit(EXIT_FAILURE);
-    }
+		shutdown(EXIT_FAILURE);
+	}
 
     /* Inizializzazione semafori */
     /*if(initSemAvailable(semUsers, 0) == -1)
@@ -236,14 +233,14 @@ void init_semaphores()
     if( initSemSimulation(semSimulation, 0) == -1)
         perror("initSemSimulation(semSimulation, 0) ");*/
 
-    initSemAvailable(semUsers, 0);
+	initSemAvailable(semUsers, 0);
     initSemAvailable(semUsers, 1);
     initSemInUse(semUsers, 2);
 
     initSemAvailable(semNodes, 0);
     initSemAvailable(semNodes, 1);
     initSemInUse(semNodes, 2);
-
+    
     initSemAvailable(semLibroMastro, 0);
     initSemAvailable(semLibroMastro, 1);
     initSemInUse(semLibroMastro, 2);
@@ -302,6 +299,17 @@ void init_sharedmem()
     /* Block number initialization */
     block_number = (unsigned int *)shmat(shmBlockNumber, NULL, 0);
     *block_number = 0;
+}
+
+/* Setting the signal handlers */
+void init_sighandlers()
+{
+	set_handler(SIGTERM, sigterm_handler);
+	set_handler(SIGINT,  sigterm_handler);
+	set_handler(SIGALRM, sigalrm_handler);
+	set_handler(SIGCHLD, sigchld_handler);
+	set_handler(SIGUSR1, sigusr1_handler);
+	set_handler(SIGUSR2, sigusr2_handler);
 }
 
 /* Reads the environment variables for the configuration  */
@@ -400,6 +408,9 @@ void users_generation()
 {
     pid_t child_pid; /* child_pid is used for the fork */
     int i=0, j=0, k=0;
+    struct timespec t;
+    t.tv_sec = 1;
+    t.tv_nsec = 0;
 
     for (i = 0; i < conf[SO_USERS_NUM]; i++)
     {
@@ -407,8 +418,9 @@ void users_generation()
         switch (child_pid)
         {
         case -1:
-            perror("Fork user error ");
-            exit(0);
+            MSG_ERR("master.users_generation(): error while generating users.");
+            perror("\tFork user error ");
+            shutdown(EXIT_FAILURE);
             break;
         case 0:
             /* Child branch */
@@ -420,23 +432,12 @@ void users_generation()
                 shmUsersArray[i].pid = getpid();
                 shmUsersArray[i].budget = conf[SO_BUDGET_INIT];
             }
-            printf("Child put %d in shmUsers[%d]\n", getpid(), i);
             endWriteInShm(semUsers);
 
-            /* Shmem read of user pids and budgets */
-            initReadFromShm(semUsers);
-            for (k = 0; k < conf[SO_USERS_NUM]; k++)
-            {
-                printf("shmUsers[%d] value : %d, con budget %d\n", k, 
-                            shmUsersArray[k].pid, 
-                            shmUsersArray[k].budget);
-            }
-            endReadFromShm(semUsers);
-
-            /* Waiting that the nodes and the users are ready and active */
+            /* Waiting that the other users are ready and active */
             reserveSem(semSimulation, 0);
             while (semctl(semSimulation, 0, GETVAL, 0) != 0)
-                sleep(1);
+                nanosleep(&t, &t);
 
             execve("./bin/user", NULL, NULL);
 
@@ -460,8 +461,9 @@ void nodes_generation()
         child_pid = fork();
         switch (child_pid){
         case -1:
-            perror("Fork node error ");
-            exit(0);
+            MSG_ERR("master.nodes_generation(): error while generating nodes.");
+            perror("\tFork node error ");
+            shutdown(EXIT_FAILURE);
             break;
         case 0:
             /* child branch */
@@ -473,18 +475,7 @@ void nodes_generation()
                 shmNodesArray[i].pid = getpid();
                 shmNodesArray[i].reward = 0;
             }
-            printf("Child put %d in shmNodes[%d]\n", getpid(), i);
             endWriteInShm(semNodes);
-
-            /* Shmem read for Node pids and reward */
-            initReadFromShm(semNodes);
-            for (k = 0; k < conf[SO_NODES_NUM]; k++)
-            {
-                printf("shmNodes[%d] value : %d, con reward %d\n", k, 
-                            shmNodesArray[k].pid, 
-							shmNodesArray[k].reward);
-            }
-            endReadFromShm(semNodes);
 
             /* Waiting that the other nodes are ready and active */
             reserveSem(semSimulation, 0);
@@ -494,8 +485,8 @@ void nodes_generation()
             msgTransactions[i] = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), 
                                             IPC_CREAT | IPC_EXCL | 0666);
             if(msgTransactions == (void *) -1){
-                MSG_ERR("main: msgTransactions, error while creating the message queue.");
-                perror("\tmsgTransactions");
+                MSG_ERR("master.nodes_generation(): msgTransactions, error while creating the message queue.");
+                perror("\tmsgTransactions ");
                 shutdown(EXIT_FAILURE);
             }
 
@@ -517,7 +508,6 @@ void nodes_generation()
 
 #pragma region LIFETIME_AND_SIGNAL_HANDLERS
 
-/* TODO: read PDF for print_stats() details */
 /* Prints the useful stats in lifetime, Prints all the info before exit() */
 void print_stats(int force_print)
 {
@@ -558,36 +548,44 @@ void print_stats(int force_print)
             printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
         }
         endReadFromShm(semUsers);
+        fflush(stdout);
     }
 }
 
 /* -------------------- SIGNAL HANDLERS -------------------- */
-/* TODO: think of the SIGTERM, SIGINT handlers */
-/* Debug signal */
+/* SIGINT and SIGTERM handlers */
 void sigterm_handler(int signum) 
 {
-	fprintf(stdout, 
-            "[INFO] Ricevuto il segnale %s, arresto la simulazione\n",
-            strsignal(signum));
-    clean_end();
+    if(!is_terminating){
+        printf("[INFO] Ricevuto il segnale %s, arresto la simulazione\n",
+                strsignal(signum));
+        is_terminating = 1;
+        clean_end();
+    }
 }
 
 /* Received when the blockchain is full */
 void sigusr1_handler(int signum)
 {
     /* Reason (1) for termination: The blockchain is full */
-    printf("Ending simulation: The blockchain is full -> [%d/%ld]\n", 
-            *block_number, SO_REGISTRY_SIZE);
-    clean_end();
+    if(!is_terminating){
+        printf("[INFO] Ending simulation: The blockchain is full -> [%d/%ld]\n", 
+                *block_number, SO_REGISTRY_SIZE);
+        is_terminating = 1;
+        clean_end();
+    }
 }
 
 /* Received when the SO_SIM_SEC timer ends */
 void sigalrm_handler(int signum)
 {
     /* Reason (2) for termination: Expired SO_SIM_SEC timer */
-    printf("Ending simulation: The execution lasted SO_SIM_SEC=%ld seconds.\n",
-            conf[SO_SIM_SEC]);
-    clean_end();
+    if(!is_terminating){
+        printf("[INFO] Ending simulation: The execution lasted SO_SIM_SEC=%ld seconds.\n",
+                conf[SO_SIM_SEC]);
+        is_terminating = 1;
+        clean_end();
+    }
 }
 
 /* Received when a child process dies */
@@ -597,7 +595,23 @@ void sigchld_handler(int signum)
     remaining_users--;
     if(remaining_users == 0){
         /* Reason (3) for termination: All the users stopped their execution */
-        printf("Ending simulation: No more active users.\n");
+        if(!is_terminating){
+            MSG_INFO2("Ending simulation: No more active users.");
+            is_terminating = 1;
+            clean_end();
+        }
+    }
+}
+
+/* Received when the message queue size is too big without root privileges */
+void sigusr2_handler(int signum)
+{
+    /* Reason (4) for termination: The MAX size of the message queue
+        must be incremented by hand with root privileges. */
+    if(!is_terminating){
+        MSG_ERR("msg_queue_size, the transaction pool is bigger than the maximum msgqueue size.");
+		MSG_INFO2("\tYou should change the MSGMNB kernel info with root privileges.");
+        is_terminating = 1;
         clean_end();
     }
 }
@@ -607,7 +621,7 @@ void sigchld_handler(int signum)
 /* -------------------- TERMINATION FUNCTIONS -------------------- */
 
 #pragma region TERMINATION
-/* TODO: Maybe add multiple shutdown functions, 1 for each IPC obj */
+
 /* Kills all the child processes */
 void send_kill_signals()
 {
@@ -618,7 +632,7 @@ void send_kill_signals()
     for(i = 0; i < conf[SO_USERS_NUM]; i++) {
         /* if the User is still alive, send the SIGINT signal */
         if(!kill(shmUsersArray[i].pid, 0)) {
-            printf("Killing user %d...\n", shmUsersArray[i].pid);
+            printf("[INFO] Killing user %d...\n", shmUsersArray[i].pid);
             kill(shmUsersArray[i].pid, SIGINT);
         }
     }
@@ -629,7 +643,7 @@ void send_kill_signals()
     for(i = 0; i < conf[SO_NODES_NUM]; i++) {
         /* if the Node is still alive, send the SIGINT signal */
         if(!kill(shmNodesArray[i].pid, 0)) {
-            printf("killing node %d...\n", shmNodesArray[i].pid);
+            printf("[INFO] killing node %d...\n", shmNodesArray[i].pid);
             kill(shmNodesArray[i].pid, SIGINT);
         }
     }

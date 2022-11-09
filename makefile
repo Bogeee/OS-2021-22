@@ -2,7 +2,7 @@
 # Custom configuration values #
 ###############################
 SO_BLOCK_SIZE = 5
-SO_REGISTRY_SIZE = 2
+SO_REGISTRY_SIZE = 20
 
 # MACRO DECLARATION
 # Custom configuration
@@ -33,7 +33,7 @@ CC = gcc
 
 # COMPILER FLAGS
 CFLAGS = -std=c89 -pedantic -O2
-LDFLAGS =
+LDFLAGS = 
 
 # DEBUG COMPILER FLAGS
 CFLAGS_DBG = -std=c89 -pedantic -O0 -g -D DEBUG

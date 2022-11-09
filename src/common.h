@@ -25,14 +25,12 @@
 #ifndef _SYS_MSG_H
 #include <sys/msg.h>
 #endif
-
-#include <stdio.h>      /* printf(), fgets() */
-#include <stdlib.h>     /* atoi(), calloc(), free(), getenv() */ 
-#include <limits.h>     /* Limits of numbers macros */ 
-#include <string.h>     /* stderr */
-#include <signal.h>		/* set_handler(), */
-#include <errno.h>      /* errno */
-#include "bashprint.h"  /* Pretty print messages to screen */
+#ifndef _STDARG_H
+#include <stdarg.h>
+#endif
+#ifndef _STRING_H
+#include <string.h>
+#endif
 
 #ifndef __COMMON_H
 #define __COMMON_H 1
@@ -105,6 +103,13 @@ typedef struct
     transaction transBlock[SO_BLOCK_SIZE];
 } block;
 
+/* List of sent transactions */
+struct pendingTr
+{
+    transaction trans;
+    struct pendingTr *next;
+};
+
 /* configuration */
 #define N_RUNTIME_CONF_VALUES 13
 #define N_COMPILETIME_CONF_VALUES 2
@@ -148,18 +153,4 @@ void endWriteInShm(int);
 
 int randomNum(int min, int max);
 
-
-#define N_RUNTIME_CONF_VALUES 13
-/* RUN TIME CONFIGURATION VALUES */
-enum conf_index {
-	SO_USERS_NUM, SO_NODES_NUM, SO_BUDGET_INIT, SO_REWARD, 
-	SO_MIN_TRANS_GEN_NSEC, SO_MAX_TRANS_GEN_NSEC, SO_RETRY, 
-	SO_TP_SIZE, SO_MIN_TRANS_PROC_NSEC, SO_MAX_TRANS_PROC_NSEC, 
-	SO_SIM_SEC, SO_FRIENDS_NUM, SO_HOPS
-};
-
-int get_configuration();
-
 #endif /* __COMMON_H */
-
-
