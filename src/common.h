@@ -83,7 +83,7 @@ typedef struct
 /* Transaction type */
 typedef struct
 {
-    int timestamp;
+    struct timespec timestamp;
     int sender;
     int receiver;
     int quantity;

@@ -41,18 +41,20 @@ int myTransactionsMsg;  /* ID for the message queue */
 int semNodes;        /* Semaphore for shmem access on the Array of Node PIDs */
 int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semBlockNumber;  /* Semaphore for the last block number */
+int semSimulation;   /* Semaphore for the simulation */
 
 int main()
 {
 	msgbuf msg;
 	transaction reward;
+	struct timespec timestamp;
 	struct timespec t;
 	block transSet;
 
 	ssize_t num_bytes;
 	int count = 0;
 	int i = 0;
-	int sum_rewards;
+	int sum_rewards = 0;
 
 	init();
 #ifdef DEBUG
@@ -74,7 +76,9 @@ int main()
 				for(i = 0; i <= count; i++){
 					sum_rewards += transSet.transBlock[i].reward;
 				}
-				reward.timestamp = clock_gettime(CLOCK_REALTIME, &t);
+				clock_gettime(CLOCK_REALTIME, &timestamp);
+
+				reward.timestamp = timestamp;
 				reward.sender = TRANS_REWARD_SENDER;
 				reward.receiver = getpid();
 				reward.quantity = sum_rewards;
@@ -95,15 +99,18 @@ int main()
 									  conf[SO_MAX_TRANS_GEN_NSEC]);
 				nanosleep(&t, &t);
 
-				initWriteInShm(semLibroMastro);
-				libroMastroArray[*block_number] = transSet;
-				endWriteInShm(semLibroMastro);
-
-				*block_number = *block_number + 1;
 				/* libro mastro is full */
 				if(*block_number == SO_REGISTRY_SIZE){
 					/* send signal to master process */
+					unblock_signals(1, SIGINT);
 					kill(getppid(), SIGUSR1);
+					pause();
+				} else {
+					initWriteInShm(semLibroMastro);
+					libroMastroArray[*block_number] = transSet;
+					endWriteInShm(semLibroMastro);
+
+					*block_number = *block_number + 1;
 				}
 
 				endWriteInShm(semBlockNumber);
@@ -138,6 +145,11 @@ int main()
 /* Accessing all the IPC objects, setting the SIGINT Handler */
 void init()
 {
+	struct sembuf s;
+    s.sem_num = 0;
+    s.sem_op = 0;
+    s.sem_flg = 0;
+
 	init_conf();
 	init_sharedmem();
 	init_semaphores();
@@ -148,6 +160,13 @@ void init()
 
 	/* Master wants to kill the node */
 	set_handler(SIGINT, sigint_handler);
+
+	/* Waiting that the other nodes are ready and active */
+	reserveSem(semSimulation, 0);
+    if(semop(semSimulation, &s, 1) == -1){
+        MSG_ERR("node.init(): error while waiting for zero on semSimulation.");
+        perror("\tsemSimulation: ");
+    }
 }
 
 /* Accessing the configuration shared memory segment in READ ONLY */
@@ -215,8 +234,15 @@ void init_semaphores()
 
 	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
     if(semLibroMastro == -1){
-		MSG_ERR("node.init(): semLibroMastro, error while creating the semaphore.");
+		MSG_ERR("node.init(): semLibroMastro, error while getting the semaphore.");
         perror("\tsemLibroMastro ");
+		shutdown(EXIT_FAILURE);
+	}
+
+	semSimulation = semget(SEM_SIM_KEY, 1, 0666);
+    if(semSimulation == -1){
+		MSG_ERR("node.init(): semSimulation, error while getting the semaphore.");
+        perror("\tsemSimulation ");
 		shutdown(EXIT_FAILURE);
 	}
 }

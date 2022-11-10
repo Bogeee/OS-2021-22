@@ -51,6 +51,7 @@ int semNodes;        /* Semaphore for shmem access on the Array of Node PIDs */
 int semUsers;        /* Semaphore for shmem access on the Array of User PIDs */
 int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semBlockNumber;  /* Semaphore for the last block number */
+int semSimulation;   /* Semaphore for the simulation */
 
 int bilancio;    /* User's budget */
 struct pendingTr *pendingList; /* List of unprocessed transactions */
@@ -77,7 +78,8 @@ int main(int argc, char **argv)
             fails++;
     }
 #ifdef DEBUG
-	printf("[INFO] user.main(%d): Too many fails...\n", getpid());
+    getBilancio();
+	printf("[INFO] user.main(%d): Too many fails...%d\n", getpid(), bilancio);
 #endif
     return 0;
 }
@@ -87,10 +89,11 @@ int main(int argc, char **argv)
 /* Accessing all the required IPC objects, setting the signal handlers */
 void init()
 {
-    struct timespec t;
-    t.tv_sec = 1;
-    t.tv_nsec = 0;
-
+    struct sembuf s;
+    s.sem_num = 0;
+    s.sem_op = 0;
+    s.sem_flg = 0;
+    
 	init_conf();
 	init_semaphores();
 	init_sharedmem();
@@ -108,7 +111,12 @@ void init()
     set_handler(SIGUSR1, sigusr1_handler);
     set_handler(SIGINT,  sigint_handler);
 
-    nanosleep(&t,&t);
+	/* Waiting that the other nodes are ready and active */
+	reserveSem(semSimulation, 0);
+    if(semop(semSimulation, &s, 1) == -1){
+        MSG_ERR("user.init(): error while waiting for zero on semSimulation.");
+        perror("\tsemSimulation: ");
+    }
 }
 
 /* Accessing the configuration shared memory segment in READ ONLY */
@@ -119,7 +127,7 @@ void init_conf()
 						SHM_RDONLY);
 	if (shmConfig == -1){
 		MSG_ERR("user.init(): shmConfig, error while getting the shared memory segment.");
-        perror("\tshmConfig");
+        perror("\tshmConfig ");
 		shutdown(EXIT_FAILURE);
 	}
     conf = shmat(shmConfig, NULL, 0);
@@ -132,7 +140,7 @@ void init_sharedmem()
     if (shmUsers == -1)
     {
         MSG_ERR("user.init(): shmUsers, error while creating the shared memory segment.");
-        perror("\tshmUsers");
+        perror("\tshmUsers ");
         shutdown(EXIT_FAILURE);
     }
 	shmUsersArray = (user *)shmat(shmUsers, NULL, 0);
@@ -141,7 +149,7 @@ void init_sharedmem()
     if (shmNodes == -1)
     {
         MSG_ERR("user.init(): shmNodes, error while creating the shared memory segment.");
-        perror("\tshmNodes");
+        perror("\tshmNodes ");
         shutdown(EXIT_FAILURE);
     }
 	shmNodesArray = (node *)shmat(shmNodes, NULL, 0);
@@ -150,7 +158,7 @@ void init_sharedmem()
     shmBlockNumber = shmget(SHM_BLOCK_NUMBER, sizeof(unsigned int), SHM_RDONLY);
     if (shmBlockNumber == -1){
 		MSG_ERR("user.init(): shmBlockNumber, error while creating the shared memory segment.");
-        perror("\tshmBlockNumber");
+        perror("\tshmBlockNumber ");
 		shutdown(EXIT_FAILURE); 
 	}
     block_number = (unsigned int *)shmat(shmBlockNumber, NULL, 0);
@@ -159,7 +167,7 @@ void init_sharedmem()
     if (shmLibroMastro == -1)
     {
         MSG_ERR("user.init(): shmLibroMastro, error while creating the shared memory segment.");
-        perror("\tsemLibroMastro");
+        perror("\tsemLibroMastro ");
         shutdown(EXIT_FAILURE);
     }
 	libroMastroArray = (block *)shmat(shmLibroMastro, NULL, 0);
@@ -172,32 +180,39 @@ void init_semaphores()
     if (semUsers == -1)
     {
         MSG_ERR("user.init(): semUsers, error while creating the semaphore.");
-        perror("\tsemUsers");
+        perror("\tsemUsers ");
         shutdown(EXIT_FAILURE);
     }
 
     semNodes = semget(SEM_NODE_KEY, 3, 0666);
     if (semNodes == -1)
     {
-        MSG_ERR("user.init(): semNodes, error while creating the semaphore.");
-        perror("\tsemNodes");
+        MSG_ERR("user.init(): semNodes, error while getting the semaphore.");
+        perror("\tsemNodes ");
         shutdown(EXIT_FAILURE);
     }
 
     semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, 0666);
 	if(semBlockNumber == -1){
 		MSG_ERR("user.init(): semBlockNumber, error while getting the semaphore.");
-        perror("\tsemBlockNumber");
+        perror("\tsemBlockNumber ");
 		shutdown(EXIT_FAILURE);
 	}
 
     semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, 0666);
     if (semLibroMastro == -1)
     {
-        MSG_ERR("user.init(): semLibroMastro, error while creating the semaphore.");
-        perror("\tsemLibroMastro");
+        MSG_ERR("user.init(): semLibroMastro, error while getting the semaphore.");
+        perror("\tsemLibroMastro ");
         shutdown(EXIT_FAILURE);
     }
+
+    semSimulation = semget(SEM_SIM_KEY, 1, 0666);
+    if(semSimulation == -1){
+		MSG_ERR("user.init(): semSimulation, error while getting the semaphore.");
+        perror("\tsemSimulation ");
+		shutdown(EXIT_FAILURE);
+	}
 }
 
 /* -------------------- LIFETIME FUNCTIONS -------------------- */
@@ -206,6 +221,7 @@ void init_semaphores()
 int createTransaction()
 {
     msgbuf msg;
+    struct timespec timestamp;
     struct timespec tempo;
 
     transaction newTr;  /* new transaction */
@@ -240,18 +256,22 @@ int createTransaction()
 
     randomQuantity -= nodeReward;
 
+    clock_gettime(CLOCK_REALTIME, &timestamp);
     newTr.quantity = randomQuantity;
     newTr.receiver = randomReceiverPID;
     newTr.reward = nodeReward;
     newTr.sender = getpid();
-    newTr.timestamp = time(NULL);
-/*     (int)clock_gettime(CLOCK_REALTIME, &tempo); */
+    newTr.timestamp = timestamp;
 
     msg.trans = newTr;
     msg.mtype = 1;
 
     if(msgsnd(msgTrans, &msg, sizeof(msgbuf), IPC_NOWAIT) < 0)
     {
+#ifdef DEBUG
+        MSG_INFO2("user.createTransaction(): Node transaction pool is full!");
+        perror("\tuser.msgsnd(): ");
+#endif
         return 0;
     } else {
         addToPendingList(newTr);
@@ -336,7 +356,8 @@ void removeFromPendingList(transaction tr)
     struct pendingTr *deleted = NULL;
 
     while(head != NULL && !found){
-        if(head->trans.timestamp == tr.timestamp 
+        if(head->trans.timestamp.tv_sec == tr.timestamp.tv_sec
+          && head->trans.timestamp.tv_nsec == tr.timestamp.tv_nsec 
           && head->trans.sender == tr.sender
           && head->trans.receiver == tr.receiver
           && head->trans.quantity == tr.quantity

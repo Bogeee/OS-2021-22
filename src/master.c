@@ -112,7 +112,7 @@ int main (int argc, char ** argv)
     /* ????????????? */
     /* Attesa del semaforo per far partire la simulazione */
     /* ????????????? */
-    
+
     alarm(conf[SO_SIM_SEC]);
     while (1){
         nanosleep(&t, &t);
@@ -434,11 +434,6 @@ void users_generation()
             }
             endWriteInShm(semUsers);
 
-            /* Waiting that the other users are ready and active */
-            reserveSem(semSimulation, 0);
-            while (semctl(semSimulation, 0, GETVAL, 0) != 0)
-                nanosleep(&t, &t);
-
             execve("./bin/user", NULL, NULL);
 
             /* exit(EXIT_SUCCESS); */
@@ -477,11 +472,6 @@ void nodes_generation()
             }
             endWriteInShm(semNodes);
 
-            /* Waiting that the other nodes are ready and active */
-            reserveSem(semSimulation, 0);
-            while (semctl(semSimulation, 0, GETVAL, 0) != 0)
-               sleep(1);
-
             msgTransactions[i] = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), 
                                             IPC_CREAT | IPC_EXCL | 0666);
             if(msgTransactions == (void *) -1){
@@ -513,13 +503,13 @@ void print_stats(int force_print)
 {
     int i = 0, j = 0;
     if(force_print){
-        initReadFromShm(semUsers);
+/*         initReadFromShm(semUsers);
         printf("\n\n===============USERS==============\n");
         for(i = 0; i < conf[SO_USERS_NUM]; i++){
             printf("\tPID:%d\n", shmUsersArray[i].pid);
             printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
         }
-        endReadFromShm(semUsers);
+        endReadFromShm(semUsers); */
 
         initReadFromShm(semLibroMastro);
         initReadFromShm(semBlockNumber);
@@ -529,8 +519,9 @@ void print_stats(int force_print)
         for(i = 0; i < *block_number; i++){
             printf("Block #%d:\n", i);
             for(j = 0; j < SO_BLOCK_SIZE; j++){
-                printf("\tTransaction #%d: t=%d\t snd=%d\t rcv=%d\t qty=%d\t rwd=%d\n",
-                        j, libroMastroArray[i].transBlock[j].timestamp,
+                printf("\tTransaction #%d: t=%d.%d\t snd=%d\t rcv=%d\t qty=%d\t rwd=%d\n",
+                        j, libroMastroArray[i].transBlock[j].timestamp.tv_sec,
+                        libroMastroArray[i].transBlock[j].timestamp.tv_nsec,
                         libroMastroArray[i].transBlock[j].sender,
                         libroMastroArray[i].transBlock[j].receiver,
                         libroMastroArray[i].transBlock[j].quantity,
@@ -541,13 +532,13 @@ void print_stats(int force_print)
         endReadFromShm(semLibroMastro);
     }
     else{
-        initReadFromShm(semUsers);
+/*         initReadFromShm(semUsers);
         printf("\n\n===============USERS==============\n");
         for(i = 0; i < conf[SO_USERS_NUM]; i++){
             printf("\tPID:%d\n", shmUsersArray[i].pid);
             printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
         }
-        endReadFromShm(semUsers);
+        endReadFromShm(semUsers); */
         fflush(stdout);
     }
 }
