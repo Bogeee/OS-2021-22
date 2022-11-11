@@ -460,9 +460,8 @@ void shutdown(int status)
     semctl(semNodes, 0, IPC_RMID, 0);
     semctl(semLibroMastro, 0, IPC_RMID, 0);
 	semctl(semBlockNumber, 0, IPC_RMID, 0);
-    /*semctl(semSimulation, 0, IPC_RMID, 0);*/
+    semctl(semSimulation, 0, IPC_RMID, 0);
 
-    /*msgctl(msgTransactions, IPC_RMID, NULL);*/
     freePendingList(pendingList);
     exit(status);
 }

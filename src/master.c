@@ -80,6 +80,8 @@ int semBlockNumber;  /* Semaphore for the last block number */
 int remaining_users; /* Number of active users */
 int remaining_nodes; /* Number of active nodes */
 int is_terminating;  /* Boolean used to detect the termination */
+int nodes_generated; /* Boolean to 1 if the nodes were generated */
+int users_generated; /* Boolean to 1 if the users were generated */
 
 int main (int argc, char ** argv)
 {
@@ -91,14 +93,17 @@ int main (int argc, char ** argv)
 	/*system("clear"); */
 
     /* (1): Get simulation configuration, initialize IPC Objects */
+    set_handler(SIGINT,  sigterm_handler);
     init();
 
     /* (2): Generate child processes */
     nodes_generation();
+    nodes_generated = 1;
     /* For statistical purposes */
     remaining_nodes = conf[SO_NODES_NUM];
     
     users_generation();
+    users_generated = 1;
     /* When this integer reaches 0, the simulation must end */
     remaining_users = conf[SO_USERS_NUM];
 
@@ -134,6 +139,23 @@ int main (int argc, char ** argv)
 /* Wrapper function that calls the other initialization functions  */
 void init()
 {
+    /* Simulation is starting */
+    is_terminating = 0;
+    nodes_generated = 0;
+    users_generated = 0;
+
+    /* Setting IPC IDs to -1 */
+    semUsers = -1;
+    semNodes = -1;
+    semLibroMastro = -1;
+    semSimulation = -1;
+    semBlockNumber = -1;
+    shmConfig = -1;
+    shmUsers = -1;
+    shmNodes = -1;
+    shmLibroMastro = -1;
+    shmBlockNumber = -1;
+    
     init_conf();
     init_semaphores();
 	init_sharedmem();
@@ -146,9 +168,6 @@ void init()
     
     /* Initializes seed for the random number generation */ 
     srand(getpid()+getppid());
-
-    /* Simulation is starting */
-    is_terminating = 0;
 }
 
 /* Gets the configuration and write it in shared memory */
@@ -502,7 +521,9 @@ void nodes_generation()
 void print_stats(int force_print)
 {
     int i = 0, j = 0;
-    if(force_print){
+    int cond = (users_generated && nodes_generated);
+    
+    if(force_print && cond){
 /*         initReadFromShm(semUsers);
         printf("\n\n===============USERS==============\n");
         for(i = 0; i < conf[SO_USERS_NUM]; i++){
@@ -531,7 +552,7 @@ void print_stats(int force_print)
         endReadFromShm(semBlockNumber);
         endReadFromShm(semLibroMastro);
     }
-    else{
+    else if(cond){
 /*         initReadFromShm(semUsers);
         printf("\n\n===============USERS==============\n");
         for(i = 0; i < conf[SO_USERS_NUM]; i++){
@@ -619,26 +640,30 @@ void send_kill_signals()
     int i = 0;
 
     /* For each PID in Users array, send signal */
-    initReadFromShm(shmUsers);
-    for(i = 0; i < conf[SO_USERS_NUM]; i++) {
-        /* if the User is still alive, send the SIGINT signal */
-        if(!kill(shmUsersArray[i].pid, 0)) {
-            printf("[INFO] Killing user %d...\n", shmUsersArray[i].pid);
-            kill(shmUsersArray[i].pid, SIGINT);
+    if(users_generated){
+        initReadFromShm(semUsers);
+        for(i = 0; i < conf[SO_USERS_NUM]; i++) {
+            /* if the User is still alive, send the SIGINT signal */
+            if(!kill(shmUsersArray[i].pid, 0)) {
+                printf("[INFO] Killing user %d...\n", shmUsersArray[i].pid);
+                kill(shmUsersArray[i].pid, SIGINT);
+            }
         }
+        endReadFromShm(semUsers);
     }
-    endReadFromShm(shmUsers);
 
     /* For each PID in Nodes array, send signal */
-    initReadFromShm(shmNodes);
-    for(i = 0; i < conf[SO_NODES_NUM]; i++) {
-        /* if the Node is still alive, send the SIGINT signal */
-        if(!kill(shmNodesArray[i].pid, 0)) {
-            printf("[INFO] killing node %d...\n", shmNodesArray[i].pid);
-            kill(shmNodesArray[i].pid, SIGINT);
+    if(nodes_generated){
+        initReadFromShm(semNodes);
+        for(i = 0; i < conf[SO_NODES_NUM]; i++) {
+            /* if the Node is still alive, send the SIGINT signal */
+            if(!kill(shmNodesArray[i].pid, 0)) {
+                printf("[INFO] killing node %d...\n", shmNodesArray[i].pid);
+                kill(shmNodesArray[i].pid, SIGINT);
+            }
         }
+        endReadFromShm(semNodes);
     }
-    endReadFromShm(shmNodes);
 }
 
 /* Clears all IPC objects, Memory free, exit */
@@ -687,9 +712,11 @@ void shutdown(int status)
 	semctl(semBlockNumber, 0, IPC_RMID, 0);
 
     /* Removing Msg Queues */
-    for(i=0; i < conf[SO_NODES_NUM]; i++)
-	    msgctl(msgTransactions[i], IPC_RMID, NULL);
-    free(msgTransactions);
+    if(nodes_generated){
+        for(i=0; i < conf[SO_NODES_NUM]; i++)
+            msgctl(msgTransactions[i], IPC_RMID, NULL);
+        free(msgTransactions);
+    }
 
     /* detach the shmem of the conf */
     shmdt((void *)conf);
