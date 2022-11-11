@@ -450,6 +450,7 @@ void users_generation()
             {
                 shmUsersArray[i].pid = getpid();
                 shmUsersArray[i].budget = conf[SO_BUDGET_INIT];
+                shmUsersArray[i].alive = 1;
             }
             endWriteInShm(semUsers);
 

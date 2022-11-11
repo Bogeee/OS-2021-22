@@ -82,6 +82,7 @@ int main(int argc, char **argv)
     getBilancio();
 	printf("[INFO] user.main(%d): Too many fails...%d\n", my_pid, bilancio);
 #endif
+    shutdown(EXIT_SUCCESS);
     return 0;
 }
 
@@ -117,8 +118,10 @@ void init()
 	/* Waiting that the other nodes are ready and active */
 	reserveSem(semSimulation, 0);
     if(semop(semSimulation, &s, 1) == -1){
+#ifdef DEBUG
         MSG_ERR("user.init(): error while waiting for zero on semSimulation.");
         perror("\tsemSimulation: ");
+#endif
     }
 }
 
@@ -226,6 +229,7 @@ int createTransaction()
     msgbuf msg;
     struct timespec timestamp;
     struct timespec tempo;
+    int try_receiver_count = 0;
 
     transaction newTr;  /* new transaction */
     int randomReceiverId; /* Random user */
@@ -235,14 +239,26 @@ int createTransaction()
     int randomQuantity; /* Random quantity for the transaction */
     int nodeReward;     /* Transaction reward */
 
+    try_receiver_count = 0;
     /* genera transazione */
+    /* 
+     * Random receiver, checks if it's alive. Can try max 5 times
+     * if the user cannot find an alive receiver after 5 tries, it
+     * counts as a transaction failure. 
+     */
     initReadFromShm(semUsers);
     do{
         randomReceiverId = randomNum(0, conf[SO_USERS_NUM] - 1);
         randomReceiverPID = shmUsersArray[randomReceiverId].pid;
+        try_receiver_count ++;
     }
-    while(randomReceiverPID == my_pid);
+    while(randomReceiverPID == my_pid 
+          && !shmUsersArray[randomReceiverId].alive 
+          && try_receiver_count < 6);
     endReadFromShm(semUsers);
+
+    if(try_receiver_count == 6)
+        return 0;
 
     randomNodeId = randomNum(0, conf[SO_NODES_NUM] - 1);
     randomQuantity = randomNum(2, bilancio);
@@ -320,12 +336,12 @@ void getBilancio()
         head = head->next;
     }
 
-    initWriteInShm(semNodes);
+    initWriteInShm(semUsers);
     i = 0;
     while(shmUsersArray[i].pid != my_pid)
         i++;
     shmUsersArray[i].budget = bilancio;
-    endWriteInShm(semNodes);
+    endWriteInShm(semUsers);
 }
 
 /* Add transaction to head */
@@ -411,6 +427,7 @@ void sigusr1_handler(int signum)
 void sigint_handler(int signum)
 {
     getBilancio();
+
     shutdown(EXIT_SUCCESS);
 }
 
@@ -418,6 +435,16 @@ void sigint_handler(int signum)
 
 void shutdown(int status)
 {
+    int i = 0;
+
+    /* Setting the flag alive to zero */
+    initWriteInShm(semUsers);
+    i = 0;
+    while(shmUsersArray[i].pid != my_pid)
+        i++;
+    shmUsersArray[i].alive = 0;
+    endWriteInShm(semUsers);
+
     /* Rimozione IPC */
     /* detach the shmem for the Users array */
     shmdt((void *)shmUsersArray);

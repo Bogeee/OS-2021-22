@@ -71,6 +71,7 @@ typedef struct
 {
     pid_t pid;
     int budget;
+    int alive;
 } user;
 
 /* Nodes type */
