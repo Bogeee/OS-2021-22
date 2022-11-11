@@ -481,17 +481,18 @@ void nodes_generation()
             break;
         case 0:
             /* child branch */
+            child_pid = getpid();
 
             /* Shmem write */
             initWriteInShm(semNodes);
             if (shmNodesArray[i].pid == 0)
             {
-                shmNodesArray[i].pid = getpid();
+                shmNodesArray[i].pid = child_pid;
                 shmNodesArray[i].reward = 0;
             }
             endWriteInShm(semNodes);
 
-            msgTransactions[i] = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), 
+            msgTransactions[i] = msgget(ftok(FTOK_PATHNAME_NODE, child_pid), 
                                             IPC_CREAT | IPC_EXCL | 0666);
             if(msgTransactions == (void *) -1){
                 MSG_ERR("master.nodes_generation(): msgTransactions, error while creating the message queue.");

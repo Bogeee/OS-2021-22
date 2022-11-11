@@ -53,8 +53,9 @@ int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semBlockNumber;  /* Semaphore for the last block number */
 int semSimulation;   /* Semaphore for the simulation */
 
-int bilancio;    /* User's budget */
+int bilancio;        /* User's budget */
 struct pendingTr *pendingList; /* List of unprocessed transactions */
+pid_t my_pid;
 
 int main(int argc, char **argv)
 {
@@ -63,7 +64,7 @@ int main(int argc, char **argv)
     init();
 
 #ifdef DEBUG
-	printf("[INFO] user.main(%d): Ready to create transactions...\n", getpid());
+	printf("[INFO] user.main(%d): Ready to create transactions...\n", my_pid);
 #endif
 
     /* Starting user loop */
@@ -79,7 +80,7 @@ int main(int argc, char **argv)
     }
 #ifdef DEBUG
     getBilancio();
-	printf("[INFO] user.main(%d): Too many fails...%d\n", getpid(), bilancio);
+	printf("[INFO] user.main(%d): Too many fails...%d\n", my_pid, bilancio);
 #endif
     return 0;
 }
@@ -94,12 +95,14 @@ void init()
     s.sem_op = 0;
     s.sem_flg = 0;
     
+    my_pid = getpid();
+
 	init_conf();
 	init_semaphores();
 	init_sharedmem();
 
     /* Initializes seed for the random number generation */ 
-    srand(getpid()+getppid());
+    srand(my_pid+getppid());
 
     /* Initializes the User's budget */
     bilancio = conf[SO_BUDGET_INIT];
@@ -238,7 +241,7 @@ int createTransaction()
         randomReceiverId = randomNum(0, conf[SO_USERS_NUM] - 1);
         randomReceiverPID = shmUsersArray[randomReceiverId].pid;
     }
-    while(randomReceiverPID == getpid());
+    while(randomReceiverPID == my_pid);
     endReadFromShm(semUsers);
 
     randomNodeId = randomNum(0, conf[SO_NODES_NUM] - 1);
@@ -260,7 +263,7 @@ int createTransaction()
     newTr.quantity = randomQuantity;
     newTr.receiver = randomReceiverPID;
     newTr.reward = nodeReward;
-    newTr.sender = getpid();
+    newTr.sender = my_pid;
     newTr.timestamp = timestamp;
 
     msg.trans = newTr;
@@ -298,10 +301,10 @@ void getBilancio()
     {
         for (j = 0; j < SO_BLOCK_SIZE; j++)
         {   
-            if (libroMastroArray[i].transBlock[j].receiver == getpid())
+            if (libroMastroArray[i].transBlock[j].receiver == my_pid)
                 bilancio += libroMastroArray[i].transBlock[j].quantity;
 
-            if (libroMastroArray[i].transBlock[j].sender == getpid()){
+            if (libroMastroArray[i].transBlock[j].sender == my_pid){
                 bilancio -= (libroMastroArray[i].transBlock[j].quantity
                             + libroMastroArray[i].transBlock[j].reward);
                 removeFromPendingList(libroMastroArray[i].transBlock[j]);
@@ -319,7 +322,7 @@ void getBilancio()
 
     initWriteInShm(semNodes);
     i = 0;
-    while(shmUsersArray[i].pid != getpid())
+    while(shmUsersArray[i].pid != my_pid)
         i++;
     shmUsersArray[i].budget = bilancio;
     endWriteInShm(semNodes);

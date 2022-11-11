@@ -42,6 +42,7 @@ int semNodes;        /* Semaphore for shmem access on the Array of Node PIDs */
 int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semBlockNumber;  /* Semaphore for the last block number */
 int semSimulation;   /* Semaphore for the simulation */
+pid_t my_pid;
 
 int main()
 {
@@ -58,7 +59,7 @@ int main()
 
 	init();
 #ifdef DEBUG
-	printf("[INFO] node.main(%d): MSG_QUEUE Waiting for messages...\n", getpid());
+	printf("[INFO] node.main(%d): MSG_QUEUE Waiting for messages...\n", my_pid);
 #endif
 	while(1){
 		
@@ -80,7 +81,7 @@ int main()
 
 				reward.timestamp = timestamp;
 				reward.sender = TRANS_REWARD_SENDER;
-				reward.receiver = getpid();
+				reward.receiver = my_pid;
 				reward.quantity = sum_rewards;
 				reward.reward = 0;
 				
@@ -126,12 +127,12 @@ int main()
 			fprintf(stderr, 
 					"node.main(%d): interrupted by a signal while waiting for a message "
 					"on Q_ID=%d. Trying again...\n",
-					getpid(), myTransactionsMsg);
+					my_pid, myTransactionsMsg);
 			continue;
 		}
 		if (errno == EIDRM) {
 			fprintf(stderr, "node.main(%d): The Q_ID=%d was removed. Ending!\n", 
-					getpid(),
+					my_pid,
 					myTransactionsMsg);
 			shutdown(EXIT_FAILURE);
 		}
@@ -149,6 +150,8 @@ void init()
     s.sem_num = 0;
     s.sem_op = 0;
     s.sem_flg = 0;
+
+	my_pid = getpid();
 
 	init_conf();
 	init_sharedmem();
@@ -253,7 +256,7 @@ void init_msgqueue()
 	struct msqid_ds msg_params;
 	msglen_t msg_max_size_no_root;
 
-	myTransactionsMsg = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), 0666);
+	myTransactionsMsg = msgget(ftok(FTOK_PATHNAME_NODE, my_pid), 0666);
     if(myTransactionsMsg == -1){
 		MSG_ERR("node.init(): myTransitionsMsg, error while getting the message queue.");
         perror("\tmyTransitionsMsg ");
