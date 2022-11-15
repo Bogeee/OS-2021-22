@@ -96,7 +96,7 @@ int main (int argc, char ** argv)
     t.tv_nsec = 0;
 
     /* (1): Get simulation configuration, initialize IPC Objects */
-    set_handler(SIGINT,  sigterm_handler);
+    set_handler(SIGINT, sigterm_handler);
     init();
 
     /* (2): Generate child processes */
@@ -124,7 +124,7 @@ int main (int argc, char ** argv)
     }
 
     /*
-     * (4): Clear IPC object, Memory Free, Termination is managed by
+     * (4): Clear IPC object, Memory Free and Termination are managed by
      *      the termination functions.
      */ 
 
@@ -369,9 +369,10 @@ void get_configuration(unsigned long * conf)
 				exit(EXIT_FAILURE);
 			}
 		} else {
-			fprintf(stderr, "[%sERROR%s] Undefined environment variable %s. Make sure to load env. variables first!\n"
-							"        Example: source cfg/custom.cfg\n",
-						COLOR_RED, COLOR_FLUSH, conf_names[i]);
+			fprintf(stderr, 
+                    "[%sERROR%s] Undefined environment variable %s. Make sure to load env. variables first!\n"
+                    "        Example: source cfg/custom.cfg\n",
+                    COLOR_RED, COLOR_FLUSH, conf_names[i]);
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -420,6 +421,7 @@ void users_generation()
             /* Child branch */
 
             /* Shmem write */
+            block_signals(2, SIGINT, SIGTERM);
             initWriteInShm(semUsers);
             if (shmUsersArray[i].pid == 0)
             {
@@ -428,6 +430,7 @@ void users_generation()
                 shmUsersArray[i].alive = 1;
             }
             endWriteInShm(semUsers);
+            unblock_signals(2, SIGINT, SIGTERM);
 
             execve("./bin/user", NULL, NULL);
 
@@ -450,17 +453,19 @@ void nodes_generation()
 	msglen_t msg_max_size_no_root;  /* System max msgqueue size */
     int test_msgqueue = -1;
 
-	test_msgqueue = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), 0666);
+	test_msgqueue = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), IPC_CREAT | 0666);
     msgctl(test_msgqueue, IPC_STAT, &msg_params);
 	msg_max_size_no_root = msg_params.msg_qbytes;
 
-	if(sizeof(msgbuf) * conf[SO_TP_SIZE] > msg_max_size_no_root){
+	if((sizeof(msgbuf) * conf[SO_TP_SIZE]) > msg_max_size_no_root){
 		MSG_ERR("master.nodes_generation(): msg_queue_size, the transaction "
                 "pool is bigger than the maximum msgqueue size.");
 		MSG_INFO2("\tYou should change the MSGMNB kernel info with root privileges.");
         msgctl(test_msgqueue, IPC_RMID, NULL);
 		shutdown(EXIT_FAILURE);
-	}
+	} 
+    msgctl(test_msgqueue, IPC_RMID, NULL);
+
 
     for (i = 0; i < conf[SO_NODES_NUM]; i++){
         child_pid = fork();
@@ -475,6 +480,7 @@ void nodes_generation()
             child_pid = getpid();
 
             /* Shmem write */
+            block_signals(2, SIGINT, SIGTERM);
             initWriteInShm(semNodes);
             if (shmNodesArray[i].pid == 0)
             {
@@ -483,9 +489,10 @@ void nodes_generation()
                 shmNodesArray[i].unproc_trans = 0;
             }
             endWriteInShm(semNodes);
+            unblock_signals(2, SIGINT, SIGTERM);
 
             msgTransactions[i] = msgget(ftok(FTOK_PATHNAME_NODE, child_pid), 
-                                            IPC_CREAT | IPC_EXCL | 0666);
+                                        IPC_CREAT | IPC_EXCL | 0666);
             if(msgTransactions == (void *) -1){
                 MSG_ERR("master.nodes_generation(): msgTransactions, error while creating the message queue.");
                 perror("\tmsgTransactions ");
@@ -515,6 +522,7 @@ void print_stats(int force_print)
 {
     int i = 0, j = 0;
     int cond = (users_generated && nodes_generated);
+    FILE *fp;
     
     if(force_print && cond){
         print_all_users();
@@ -537,16 +545,17 @@ void print_stats(int force_print)
         else if(term_reason == 4)
             printf("Simulation ended: Interrupt signal received.\n");
 
-/* Blockchain print */
-/*         initReadFromShm(semLibroMastro);
+        /* Blockchain print to file */
+        fp = fopen("./out/blockchain", "w");
+        initReadFromShm(semLibroMastro);
         initReadFromShm(semBlockNumber);
-        printf("\n\n===============BLOCKCHAIN==============\n");
-        printf("# of blocks: %d\n", *block_number);
+        fprintf(fp, "\n\n===============BLOCKCHAIN==============\n");
+        fprintf(fp, "# of blocks: %d\n", *block_number);
 
         for(i = 0; i < *block_number; i++){
-            printf("Block #%d:\n", i);
+            fprintf(fp, "Block #%d:\n", i);
             for(j = 0; j < SO_BLOCK_SIZE; j++){
-                printf("\tTransaction #%d: t=%d.%d\t snd=%d\t rcv=%d\t qty=%d\t rwd=%d\n",
+                fprintf(fp, "\tTransaction #%d: t=%d.%d\t snd=%d\t rcv=%d\t qty=%d\t rwd=%d\n",
                         j, libroMastroArray[i].transBlock[j].timestamp.tv_sec,
                         libroMastroArray[i].transBlock[j].timestamp.tv_nsec,
                         libroMastroArray[i].transBlock[j].sender,
@@ -556,12 +565,15 @@ void print_stats(int force_print)
             }
         }
         endReadFromShm(semBlockNumber);
-        endReadFromShm(semLibroMastro); */
+        endReadFromShm(semLibroMastro);
+        fclose(fp);
     }
     else if(cond){
         printf("\n\n===============ACTIVE==============\n");
-        printf("\tActive users: [%d/%d]\n", remaining_users, conf[SO_USERS_NUM]);
-        printf("\tActive nodes: [%d/%d]\n\n", remaining_nodes, conf[SO_NODES_NUM]);
+        printf("\tActive users: [%d/%d]\n", remaining_users, 
+               conf[SO_USERS_NUM]);
+        printf("\tActive nodes: [%d/%d]\n\n", remaining_nodes, 
+               conf[SO_NODES_NUM]);
 
         if(conf[SO_USERS_NUM] < 6){
             print_all_users();
@@ -595,8 +607,6 @@ void print_all_users()
 void print_most_relevant_users()
 {
     int i = 0;
-    int pos_min = 0;
-    int pos_max = 0;
     pid_t pid_min;
     pid_t pid_max;
     int min = INT_MAX;
@@ -608,21 +618,20 @@ void print_most_relevant_users()
         if(shmUsersArray[i].budget < min){
             min = shmUsersArray[i].budget;
             pid_min = shmUsersArray[i].pid;
-            pos_min = i;
         }
         if(shmUsersArray[i].budget > max){
             max = shmUsersArray[i].budget;
             pid_max = shmUsersArray[i].pid;
-            pos_max = i;
         }
     }
+    endReadFromShm(semUsers);
+
     printf("Poorest:\n");
     printf("\tPID:%d\n", pid_min);
     printf("\tBudget: %d\n\n", min);
     printf("Richest:\n");
     printf("\tPID:%d\n", pid_max);
     printf("\tBudget: %d\n\n", max);
-    endReadFromShm(semUsers);
 }
 
 /* Prints all nodes' info */
@@ -636,7 +645,8 @@ void print_all_nodes()
         printf("\tPID:%d\n", shmNodesArray[i].pid);
         printf("\tReward: %d\n", shmNodesArray[i].reward);
         if(is_terminating)
-            printf("\tUnprocessed transactions: %d\n\n", shmNodesArray[i].unproc_trans);
+            printf("\tUnprocessed transactions: %d\n\n", 
+                   shmNodesArray[i].unproc_trans);
         else
             printf("\n");
     }
@@ -647,34 +657,31 @@ void print_all_nodes()
 void print_most_relevant_nodes()
 {
     int i = 0;
-    int pos_min = 0;
-    int pos_max = 0;
     pid_t pid_min;
     pid_t pid_max;
     int min = INT_MAX;
     int max = INT_MIN;
 
-    initReadFromShm(semUsers);
+    initReadFromShm(semNodes);
     printf("\n\n===============RICHEST & POOREST NODES==============\n");
     for(i = 0; i < conf[SO_NODES_NUM]; i++){
         if(shmNodesArray[i].reward < min){
             min = shmNodesArray[i].reward;
             pid_min = shmNodesArray[i].pid;
-            pos_min = i;
         }
         if(shmNodesArray[i].reward > max){
             max = shmNodesArray[i].reward;
             pid_max = shmNodesArray[i].pid;
-            pos_max = i;
         }
     }
+    endReadFromShm(semNodes);
+
     printf("Poorest:\n");
     printf("\tPID:%d\n", pid_min);
-    printf("\tBudget: %d\n\n", min);
+    printf("\tReward: %d\n\n", min);
     printf("Richest:\n");
     printf("\tPID:%d\n", pid_max);
-    printf("\tBudget: %d\n\n", max);
-    endReadFromShm(semUsers);
+    printf("\tReward: %d\n\n", max);
 }
 
 
@@ -748,7 +755,9 @@ void send_kill_signals()
         for(i = 0; i < conf[SO_USERS_NUM]; i++) {
             /* if the User is still alive, send the SIGINT signal */
             if(!kill(shmUsersArray[i].pid, 0)) {
+#ifdef DEBUG
                 printf("[INFO] Killing user %d...\n", shmUsersArray[i].pid);
+#endif
                 kill(shmUsersArray[i].pid, SIGINT);
             }
         }

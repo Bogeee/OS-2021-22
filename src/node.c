@@ -67,7 +67,7 @@ int main()
 	printf("[INFO] node.main(%d): MSG_QUEUE Waiting for messages...\n", my_pid);
 #endif
 	while(1){
-		
+		num_bytes = 0;
 		num_bytes = msgrcv(myTransactionsMsg, &msg, sizeof(msg), 0, 0);
 
 		if (num_bytes > 0) {
@@ -93,7 +93,7 @@ int main()
 				
 				transSet.transBlock[count] = reward;
 
-				block_signals(1, SIGINT);
+				block_signals(2, SIGINT, SIGTERM);
 				/* Use the current block_number value and increment it */
 				initWriteInShm(semBlockNumber);
 				transSet.block_number = *block_number;
@@ -109,7 +109,7 @@ int main()
 				/* libro mastro is full */
 				if(*block_number == SO_REGISTRY_SIZE){
 					/* send signal to master process */
-					unblock_signals(1, SIGINT);
+					unblock_signals(2, SIGINT, SIGTERM);
 					kill(getppid(), SIGUSR1);
 					pause();
 				} else {
@@ -125,7 +125,7 @@ int main()
 				shmNodesArray[my_index].reward = reward_budget;
 				endWriteInShm(semNodes);
 
-				unblock_signals(1, SIGINT);
+				unblock_signals(2, SIGINT, SIGTERM);
 				
 				/* we can start writing another block */
 				count = 0;
@@ -288,7 +288,10 @@ void init_msgqueue()
 	/* SO_TP_SIZE management */
 	msgctl(myTransactionsMsg, IPC_STAT, &msg_params);
 
-	/* Setting the max msgqueue size, when TP is full, the msgsnd() fails with EAGAIN */
+	/* 
+	 * Setting the max msgqueue size, when TP is full, 
+	 * the msgsnd() fails with EAGAIN
+	 */
 	msg_params.msg_qbytes = sizeof(msgbuf) * conf[SO_TP_SIZE];
 	msgctl(myTransactionsMsg, IPC_SET, &msg_params);
 }
@@ -302,9 +305,11 @@ void sigint_handler()
 	while(msgrcv(myTransactionsMsg, &msg, sizeof(msg), 0, IPC_NOWAIT) != -1)
 		unproc_trans++;
 	
+	block_signals(2, SIGINT, SIGTERM);
 	initWriteInShm(semNodes);
 	shmNodesArray[my_index].unproc_trans = unproc_trans;
 	endWriteInShm(semNodes);
+	unblock_signals(2, SIGINT, SIGTERM);
 	
 	shutdown(EXIT_SUCCESS);
 }

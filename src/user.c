@@ -57,11 +57,12 @@ int semSimulation;   /* Semaphore for the simulation */
 int bilancio;        /* User's budget */
 struct pendingTr *pendingList; /* List of unprocessed transactions */
 int my_index;        /* User's index in the shmUsersArray */
+int fails;           /* User's failed transaction attempts */
 pid_t my_pid;
 
 int main(int argc, char **argv)
 {
-    int fails = 0;  /* used with SO_RETRY */
+    fails = 0;  /* used with SO_RETRY */
     
     init();
 
@@ -171,7 +172,9 @@ void init_sharedmem()
 	shmNodesArray = (node *)shmat(shmNodes, NULL, 0);
 
     /* Accessing shmem segment for the libro mastro's block number */
-    shmBlockNumber = shmget(SHM_BLOCK_NUMBER, sizeof(unsigned int), SHM_RDONLY);
+    shmBlockNumber = shmget(SHM_BLOCK_NUMBER, 
+                            sizeof(unsigned int), 
+                            SHM_RDONLY);
     if (shmBlockNumber == -1){
 		MSG_ERR("user.init(): shmBlockNumber, error while creating the shared memory segment.");
         perror("\tshmBlockNumber ");
@@ -179,7 +182,9 @@ void init_sharedmem()
 	}
     block_number = (unsigned int *)shmat(shmBlockNumber, NULL, 0);
 
-    shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, sizeof(block) * SO_REGISTRY_SIZE, SHM_RDONLY | 0666);
+    shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, 
+                            sizeof(block) * SO_REGISTRY_SIZE, 
+                            SHM_RDONLY | 0666);
     if (shmLibroMastro == -1)
     {
         MSG_ERR("user.init(): shmLibroMastro, error while creating the shared memory segment.");
@@ -233,7 +238,7 @@ void init_semaphores()
 
 /* -------------------- LIFETIME FUNCTIONS -------------------- */
 
-/*  */
+/* Creates a transaction and sends it to a node msgqueue */
 int createTransaction()
 {
     msgbuf msg;
@@ -241,13 +246,13 @@ int createTransaction()
     struct timespec tempo;
     int try_receiver_count = 0;
 
-    transaction newTr;  /* new transaction */
-    int randomReceiverId; /* Random user */
+    transaction newTr;     /* new transaction */
+    int randomReceiverId;  /* Random user */
     int randomReceiverPID; /* Random user */
-    int randomNodeId;     /* Random node */
+    int randomNodeId;      /* Random node */
     int randomNodePID;     /* Random node */
-    int randomQuantity; /* Random quantity for the transaction */
-    int nodeReward;     /* Transaction reward */
+    int randomQuantity;    /* Random quantity for the transaction */
+    int nodeReward;        /* Transaction reward */
 
     try_receiver_count = 0;
     /* genera transazione */
@@ -306,16 +311,16 @@ int createTransaction()
         addToPendingList(newTr);
         /* printPendingList(); */
         tempo.tv_sec = 0;
-        tempo.tv_nsec = randomNum(conf[SO_MIN_TRANS_GEN_NSEC], conf[SO_MAX_TRANS_GEN_NSEC]);
+        tempo.tv_nsec = randomNum(conf[SO_MIN_TRANS_GEN_NSEC], 
+                                  conf[SO_MAX_TRANS_GEN_NSEC]);
         nanosleep(&tempo, &tempo);
     }
     return 1;
 }
 
-/*  */
+/* Computes the budget by reading the blockchain and its pending trans. */
 void getBilancio()
 {
-    /* calcolo bilancio - lettura with and readers solution */
     int i = 0, j = 0; 
     struct pendingTr *head = pendingList;
 
@@ -346,9 +351,11 @@ void getBilancio()
         head = head->next;
     }
 
+    block_signals(2, SIGINT, SIGTERM, SIGUSR1);
     initWriteInShm(semUsers);
     shmUsersArray[my_index].budget = bilancio;
     endWriteInShm(semUsers);
+    unblock_signals(2, SIGINT, SIGTERM, SIGUSR1);
 }
 
 /* Add transaction to head */
@@ -416,18 +423,17 @@ void freePendingList()
 
 /* -------------------- SIGNAL HANDLERS -------------------- */
 
-/*  */
+/* Used to create a transaction with a signal event */
 void sigusr1_handler(int signum)
 {
-    /*int bilancio = getBilancio();*/
-    printf("Segnale ricevuto - creazione transazione\n");
-    /*if(bilancio > 0)
-        createTransaction(bilancio);*/
-
-    /* Riassegnazione dell'handler */
-    /*attachSignalHandler();
-    printf("Routine completa\n");*/
-    fflush(stdout);
+    if(fails < conf[SO_RETRY]){
+        getBilancio();
+        if (bilancio >= 2) {
+            if(createTransaction() == 0)
+                fails++;
+        } else
+            fails++;
+    }
 }
 
 /* received when master process wants to kill the user */
@@ -445,12 +451,11 @@ void shutdown(int status)
     int i = 0;
 
     /* Setting the flag alive to zero */
+    block_signals(2, SIGINT, SIGTERM, SIGUSR1);
     initWriteInShm(semUsers);
-    i = 0;
-    while(shmUsersArray[i].pid != my_pid)
-        i++;
-    shmUsersArray[i].alive = 0;
+    shmUsersArray[my_index].alive = 0;
     endWriteInShm(semUsers);
+    block_signals(2, SIGINT, SIGTERM);
 
     /* Rimozione IPC */
     /* detach the shmem for the Users array */

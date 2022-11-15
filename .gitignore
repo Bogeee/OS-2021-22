@@ -10,3 +10,6 @@ NOTES.md
 
 # core dump, for debugging 
 core
+
+# output file at the end of the simulations
+out/blockchain
