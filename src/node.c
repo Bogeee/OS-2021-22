@@ -47,6 +47,7 @@ int semSimulation;   /* Semaphore for the simulation */
 int reward_budget;	/* Node's reward */
 int unproc_trans;	/* Number of unprocessed transactions before term. */
 int my_index;		/* Node's index in the shmNodesArray */
+int count;    		/* Transaction number in a block */
 pid_t my_pid;
 
 int main()
@@ -307,7 +308,7 @@ void sigint_handler()
 	
 	block_signals(2, SIGINT, SIGTERM);
 	initWriteInShm(semNodes);
-	shmNodesArray[my_index].unproc_trans = unproc_trans;
+	shmNodesArray[my_index].unproc_trans = unproc_trans + count;
 	endWriteInShm(semNodes);
 	unblock_signals(2, SIGINT, SIGTERM);
 	

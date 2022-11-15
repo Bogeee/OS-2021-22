@@ -91,9 +91,9 @@ int early_deaths;    /* Number of early death users */
 int main (int argc, char ** argv)
 {
     /* To print the stats every second */
-    struct timespec t;
-    t.tv_sec = 1;
-    t.tv_nsec = 0;
+    struct timespec req = {1, 0};
+    struct timespec rem;
+    int nanofail = 0;
 
     /* (1): Get simulation configuration, initialize IPC Objects */
     set_handler(SIGINT, sigterm_handler);
@@ -119,8 +119,17 @@ int main (int argc, char ** argv)
 
     alarm(conf[SO_SIM_SEC]);
     while (1){
-        nanosleep(&t, &t);
-        print_stats(PRINT_USEFUL_STATS);
+        if(nanofail){
+            req = rem;
+            nanofail = 0;
+        } else {
+            req.tv_sec = 1;
+            req.tv_nsec = 0;
+        }
+        if(nanosleep(&req, &rem) < 0)
+            nanofail = 1;
+        else
+            print_stats(PRINT_USEFUL_STATS);
     }
 
     /*
@@ -597,7 +606,7 @@ void print_all_users()
     initReadFromShm(semUsers);
     printf("\n\n===============USERS==============\n");
     for(i = 0; i < conf[SO_USERS_NUM]; i++){
-        printf("\tPID:%d\n", shmUsersArray[i].pid);
+        printf("\tPID: %d\n", shmUsersArray[i].pid);
         printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
     }
     endReadFromShm(semUsers);
@@ -627,10 +636,10 @@ void print_most_relevant_users()
     endReadFromShm(semUsers);
 
     printf("Poorest:\n");
-    printf("\tPID:%d\n", pid_min);
+    printf("\tPID: %d\n", pid_min);
     printf("\tBudget: %d\n\n", min);
     printf("Richest:\n");
-    printf("\tPID:%d\n", pid_max);
+    printf("\tPID: %d\n", pid_max);
     printf("\tBudget: %d\n\n", max);
 }
 
@@ -642,7 +651,7 @@ void print_all_nodes()
     initReadFromShm(semNodes);
     printf("\n\n===============NODES==============\n");
     for(i = 0; i < conf[SO_NODES_NUM]; i++){
-        printf("\tPID:%d\n", shmNodesArray[i].pid);
+        printf("\tPID: %d\n", shmNodesArray[i].pid);
         printf("\tReward: %d\n", shmNodesArray[i].reward);
         if(is_terminating)
             printf("\tUnprocessed transactions: %d\n\n", 
@@ -677,10 +686,10 @@ void print_most_relevant_nodes()
     endReadFromShm(semNodes);
 
     printf("Poorest:\n");
-    printf("\tPID:%d\n", pid_min);
+    printf("\tPID: %d\n", pid_min);
     printf("\tReward: %d\n\n", min);
     printf("Richest:\n");
-    printf("\tPID:%d\n", pid_max);
+    printf("\tPID: %d\n", pid_max);
     printf("\tReward: %d\n\n", max);
 }
 
@@ -724,10 +733,12 @@ void sigalrm_handler(int signum)
 /* Received when a child process dies */
 void sigchld_handler(int signum)
 {
+    struct timespec t;
     /* Only user child processes can die before the end */
     remaining_users--;
-    if(!is_terminating)
+    if(!is_terminating){
         early_deaths++;
+    }
     if(remaining_users == 0){
         /* Reason (3) for termination: All the users stopped their execution */
         if(!is_terminating){
