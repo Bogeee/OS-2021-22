@@ -187,9 +187,11 @@ void init()
 	/* Waiting that the other nodes are ready and active */
 	reserveSem(semSimulation, 0);
     if(semop(semSimulation, &s, 1) == -1){
+#ifdef DEBUG
         MSG_ERR("node.init(): error while waiting for zero on semSimulation.");
         perror("\tsemSimulation: ");
-    }
+#endif
+	}
 }
 
 /* Accessing the configuration shared memory segment in READ ONLY */
@@ -285,14 +287,6 @@ void init_msgqueue()
 
 	/* SO_TP_SIZE management */
 	msgctl(myTransactionsMsg, IPC_STAT, &msg_params);
-	msg_max_size_no_root = msg_params.msg_qbytes;
-
-	if(sizeof(msgbuf) * conf[SO_TP_SIZE] > msg_max_size_no_root){
-		MSG_ERR("node.init(): msg_queue_size, the transaction pool is bigger than the maximum msgqueue size.");
-		MSG_INFO2(" node.init(): you should change the MSGMNB kernel info with root privileges.");
-		kill(getppid(), SIGUSR2);
-		shutdown(EXIT_FAILURE);
-	}
 
 	/* Setting the max msgqueue size, when TP is full, the msgsnd() fails with EAGAIN */
 	msg_params.msg_qbytes = sizeof(msgbuf) * conf[SO_TP_SIZE];

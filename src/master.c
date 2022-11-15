@@ -45,7 +45,6 @@ void print_most_relevant_nodes();
 /* Signal Handlers  */
 void sigterm_handler(int signum);
 void sigusr1_handler(int signum);
-void sigusr2_handler(int signum);
 void sigalrm_handler(int signum);
 void sigchld_handler(int signum);
 
@@ -305,7 +304,6 @@ void init_sighandlers()
 	set_handler(SIGALRM, sigalrm_handler);
 	set_handler(SIGCHLD, sigchld_handler);
 	set_handler(SIGUSR1, sigusr1_handler);
-	set_handler(SIGUSR2, sigusr2_handler);
 }
 
 /* Reads the environment variables for the configuration  */
@@ -448,6 +446,21 @@ void nodes_generation()
 {
     pid_t child_pid; /* child_pid is used for the fork */
     int i=0, j=0, k=0;
+    struct msqid_ds msg_params;     /* Used to check system limits */
+	msglen_t msg_max_size_no_root;  /* System max msgqueue size */
+    int test_msgqueue = -1;
+
+	test_msgqueue = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), 0666);
+    msgctl(test_msgqueue, IPC_STAT, &msg_params);
+	msg_max_size_no_root = msg_params.msg_qbytes;
+
+	if(sizeof(msgbuf) * conf[SO_TP_SIZE] > msg_max_size_no_root){
+		MSG_ERR("master.nodes_generation(): msg_queue_size, the transaction "
+                "pool is bigger than the maximum msgqueue size.");
+		MSG_INFO2("\tYou should change the MSGMNB kernel info with root privileges.");
+        msgctl(test_msgqueue, IPC_RMID, NULL);
+		shutdown(EXIT_FAILURE);
+	}
 
     for (i = 0; i < conf[SO_NODES_NUM]; i++){
         child_pid = fork();
@@ -523,10 +536,6 @@ void print_stats(int force_print)
             printf("Simulation ended: No more active users.\n");
         else if(term_reason == 4)
             printf("Simulation ended: Interrupt signal received.\n");
-        else if(term_reason == 5){
-            MSG_ERR("msg_queue_size, the transaction pool is bigger than the maximum msgqueue size.");
-            MSG_INFO2("\tYou should change the MSGMNB kernel info with root privileges.");
-        }
 
 /* Blockchain print */
 /*         initReadFromShm(semLibroMastro);
@@ -719,18 +728,6 @@ void sigchld_handler(int signum)
             term_reason = 3;
             clean_end();
         }
-    }
-}
-
-/* Received when the message queue size is too big without root privileges */
-void sigusr2_handler(int signum)
-{
-    /* Reason (5) for termination: The MAX size of the message queue
-        must be incremented by hand with root privileges. */
-    if(!is_terminating){
-        is_terminating = 1;
-        term_reason = 5;
-        clean_end();
     }
 }
 
