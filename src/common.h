@@ -79,6 +79,7 @@ typedef struct
 {
     pid_t pid;
     int reward;
+    int unproc_trans;
 } node;
 
 /* Transaction type */

@@ -53,8 +53,10 @@ int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semBlockNumber;  /* Semaphore for the last block number */
 int semSimulation;   /* Semaphore for the simulation */
 
+/*** Global variables ***/
 int bilancio;        /* User's budget */
 struct pendingTr *pendingList; /* List of unprocessed transactions */
+int my_index;        /* User's index in the shmUsersArray */
 pid_t my_pid;
 
 int main(int argc, char **argv)
@@ -91,6 +93,7 @@ int main(int argc, char **argv)
 /* Accessing all the required IPC objects, setting the signal handlers */
 void init()
 {
+    int i = 0;
     struct sembuf s;
     s.sem_num = 0;
     s.sem_op = 0;
@@ -114,6 +117,13 @@ void init()
 	/* Master wants to kill the node */
     set_handler(SIGUSR1, sigusr1_handler);
     set_handler(SIGINT,  sigint_handler);
+
+    initReadFromShm(semUsers);
+    i = 0;
+    while(shmUsersArray[i].pid != my_pid)
+        i++;
+    my_index = i;
+    endReadFromShm(semUsers);
 
 	/* Waiting that the other nodes are ready and active */
 	reserveSem(semSimulation, 0);
@@ -337,10 +347,7 @@ void getBilancio()
     }
 
     initWriteInShm(semUsers);
-    i = 0;
-    while(shmUsersArray[i].pid != my_pid)
-        i++;
-    shmUsersArray[i].budget = bilancio;
+    shmUsersArray[my_index].budget = bilancio;
     endWriteInShm(semUsers);
 }
 

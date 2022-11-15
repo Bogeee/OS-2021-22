@@ -42,6 +42,11 @@ int semNodes;        /* Semaphore for shmem access on the Array of Node PIDs */
 int semLibroMastro;  /* Semaphore for shmem access on the Libro Mastro */
 int semBlockNumber;  /* Semaphore for the last block number */
 int semSimulation;   /* Semaphore for the simulation */
+
+/*** Global variables ***/
+int reward_budget;	/* Node's reward */
+int unproc_trans;	/* Number of unprocessed transactions before term. */
+int my_index;		/* Node's index in the shmNodesArray */
 pid_t my_pid;
 
 int main()
@@ -77,6 +82,7 @@ int main()
 				for(i = 0; i <= count; i++){
 					sum_rewards += transSet.transBlock[i].reward;
 				}
+				reward_budget += sum_rewards;
 				clock_gettime(CLOCK_REALTIME, &timestamp);
 
 				reward.timestamp = timestamp;
@@ -113,8 +119,12 @@ int main()
 
 					*block_number = *block_number + 1;
 				}
-
 				endWriteInShm(semBlockNumber);
+
+				initWriteInShm(semNodes);
+				shmNodesArray[my_index].reward = reward_budget;
+				endWriteInShm(semNodes);
+
 				unblock_signals(1, SIGINT);
 				
 				/* we can start writing another block */
@@ -146,12 +156,15 @@ int main()
 /* Accessing all the IPC objects, setting the SIGINT Handler */
 void init()
 {
+	int i = 0;
 	struct sembuf s;
     s.sem_num = 0;
     s.sem_op = 0;
     s.sem_flg = 0;
 
 	my_pid = getpid();
+	reward_budget = 0;
+	unproc_trans = 0;
 
 	init_conf();
 	init_sharedmem();
@@ -163,6 +176,13 @@ void init()
 
 	/* Master wants to kill the node */
 	set_handler(SIGINT, sigint_handler);
+
+	initReadFromShm(semNodes);
+	i = 0;
+	while(shmNodesArray[i].pid != my_pid)
+		i++;
+	my_index = i;
+	endReadFromShm(semNodes);
 
 	/* Waiting that the other nodes are ready and active */
 	reserveSem(semSimulation, 0);
@@ -284,6 +304,14 @@ void init_msgqueue()
 /* Receiving SIGINT from master process */
 void sigint_handler()
 {
+	msgbuf msg;
+	while(msgrcv(myTransactionsMsg, &msg, sizeof(msg), 0, IPC_NOWAIT) != -1)
+		unproc_trans++;
+	
+	initWriteInShm(semNodes);
+	shmNodesArray[my_index].unproc_trans = unproc_trans;
+	endWriteInShm(semNodes);
+	
 	shutdown(EXIT_SUCCESS);
 }
 

@@ -37,6 +37,10 @@ void nodes_generation();
 
 /* Lifetime */
 void print_stats(int force_print);
+void print_all_users();
+void print_most_relevant_users();
+void print_all_nodes();
+void print_most_relevant_nodes();
 
 /* Signal Handlers  */
 void sigterm_handler(int signum);
@@ -82,6 +86,8 @@ int remaining_nodes; /* Number of active nodes */
 int is_terminating;  /* Boolean used to detect the termination */
 int nodes_generated; /* Boolean to 1 if the nodes were generated */
 int users_generated; /* Boolean to 1 if the users were generated */
+int term_reason;     /* Defines reason of termination */
+int early_deaths;    /* Number of early death users */
 
 int main (int argc, char ** argv)
 {
@@ -89,8 +95,6 @@ int main (int argc, char ** argv)
     struct timespec t;
     t.tv_sec = 1;
     t.tv_nsec = 0;
-
-	/*system("clear"); */
 
     /* (1): Get simulation configuration, initialize IPC Objects */
     set_handler(SIGINT,  sigterm_handler);
@@ -113,10 +117,6 @@ int main (int argc, char ** argv)
      *      - Print stats every second. 
      */
     init_sighandlers();
-
-    /* ????????????? */
-    /* Attesa del semaforo per far partire la simulazione */
-    /* ????????????? */
 
     alarm(conf[SO_SIM_SEC]);
     while (1){
@@ -143,6 +143,8 @@ void init()
     is_terminating = 0;
     nodes_generated = 0;
     users_generated = 0;
+    term_reason = 0;
+    early_deaths = 0;
 
     /* Setting IPC IDs to -1 */
     semUsers = -1;
@@ -226,31 +228,6 @@ void init_semaphores()
         perror("\tsemSimulazione");
 		shutdown(EXIT_FAILURE);
 	}
-
-    /* Inizializzazione semafori */
-    /*if(initSemAvailable(semUsers, 0) == -1)
-        perror("initSemAvailable(semUsers, 0) ");
-    if(initSemAvailable(semUsers, 1) == -1)
-        perror("initSemAvailable(semUsers, 1) ");
-    if(initSemInUse(semUsers, 2) == -1)
-        perror("initSemAvailable(semUsers, 2) ");
-
-    if(initSemAvailable(semNodes, 0) == -1)
-        perror("initSemAvaible(semNode, 0) ");
-    if(initSemAvailable(semNodes, 1) == -1)
-        perror("initSemAvaible(semNode, 1) ");
-    if(initSemInUse(semNodes, 0) == -1)
-        perror("initSemInUse(semNode, 2) ");
-
-    if(initSemAvailable(semLibroMastro, 0) == -1)
-        perror("initSemAvaible(semLibroMastro, 0) ");
-    if(initSemAvailable(semLibroMastro, 1) == -1)
-        perror("initSemAvaible(semLibroMastro, 1) ");
-    if(initSemInUse(semLibroMastro, 0) == -1)
-        perror("initSemInUse(semLibroMastro, 2) ");
-
-    if( initSemSimulation(semSimulation, 0) == -1)
-        perror("initSemSimulation(semSimulation, 0) ");*/
 
 	initSemAvailable(semUsers, 0);
     initSemAvailable(semUsers, 1);
@@ -490,6 +467,7 @@ void nodes_generation()
             {
                 shmNodesArray[i].pid = child_pid;
                 shmNodesArray[i].reward = 0;
+                shmNodesArray[i].unproc_trans = 0;
             }
             endWriteInShm(semNodes);
 
@@ -526,15 +504,32 @@ void print_stats(int force_print)
     int cond = (users_generated && nodes_generated);
     
     if(force_print && cond){
-/*         initReadFromShm(semUsers);
-        printf("\n\n===============USERS==============\n");
-        for(i = 0; i < conf[SO_USERS_NUM]; i++){
-            printf("\tPID:%d\n", shmUsersArray[i].pid);
-            printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
-        }
-        endReadFromShm(semUsers); */
+        print_all_users();
+        print_all_nodes();
+        printf("Users died too early: [%d/%d]\n", 
+               early_deaths, conf[SO_USERS_NUM]);
 
-        initReadFromShm(semLibroMastro);
+        initReadFromShm(semBlockNumber);
+        printf("# of blocks: %d\n", *block_number);
+        endReadFromShm(semBlockNumber);
+
+        if(term_reason == 1)
+            printf("Simulation ended: The blockchain is full -> [%d/%ld]\n",
+                   *block_number, SO_REGISTRY_SIZE);
+        else if(term_reason == 2)
+            printf("Simulation ended: The execution lasted SO_SIM_SEC=%ld seconds.\n",
+                   conf[SO_SIM_SEC]);
+        else if(term_reason == 3)
+            printf("Simulation ended: No more active users.\n");
+        else if(term_reason == 4)
+            printf("Simulation ended: Interrupt signal received.\n");
+        else if(term_reason == 5){
+            MSG_ERR("msg_queue_size, the transaction pool is bigger than the maximum msgqueue size.");
+            MSG_INFO2("\tYou should change the MSGMNB kernel info with root privileges.");
+        }
+
+/* Blockchain print */
+/*         initReadFromShm(semLibroMastro);
         initReadFromShm(semBlockNumber);
         printf("\n\n===============BLOCKCHAIN==============\n");
         printf("# of blocks: %d\n", *block_number);
@@ -552,28 +547,138 @@ void print_stats(int force_print)
             }
         }
         endReadFromShm(semBlockNumber);
-        endReadFromShm(semLibroMastro);
+        endReadFromShm(semLibroMastro); */
     }
     else if(cond){
-/*         initReadFromShm(semUsers);
-        printf("\n\n===============USERS==============\n");
-        for(i = 0; i < conf[SO_USERS_NUM]; i++){
-            printf("\tPID:%d\n", shmUsersArray[i].pid);
-            printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
+        printf("\n\n===============ACTIVE==============\n");
+        printf("\tActive users: [%d/%d]\n", remaining_users, conf[SO_USERS_NUM]);
+        printf("\tActive nodes: [%d/%d]\n\n", remaining_nodes, conf[SO_NODES_NUM]);
+
+        if(conf[SO_USERS_NUM] < 6){
+            print_all_users();
+        } else {
+            print_most_relevant_users();
         }
-        endReadFromShm(semUsers); */
-        fflush(stdout);
+
+        if(conf[SO_NODES_NUM] < 6){
+            print_all_nodes();
+        } else {
+            print_most_relevant_nodes();
+        }
     }
 }
+
+/* Prints all users' info */
+void print_all_users()
+{
+    int i = 0;
+
+    initReadFromShm(semUsers);
+    printf("\n\n===============USERS==============\n");
+    for(i = 0; i < conf[SO_USERS_NUM]; i++){
+        printf("\tPID:%d\n", shmUsersArray[i].pid);
+        printf("\tBudget: %d\n\n", shmUsersArray[i].budget);
+    }
+    endReadFromShm(semUsers);
+}
+
+/* Prints the richest and poorest users */
+void print_most_relevant_users()
+{
+    int i = 0;
+    int pos_min = 0;
+    int pos_max = 0;
+    pid_t pid_min;
+    pid_t pid_max;
+    int min = INT_MAX;
+    int max = INT_MIN;
+
+    initReadFromShm(semUsers);
+    printf("\n\n===============RICHEST & POOREST USERS==============\n");
+    for(i = 0; i < conf[SO_USERS_NUM]; i++){
+        if(shmUsersArray[i].budget < min){
+            min = shmUsersArray[i].budget;
+            pid_min = shmUsersArray[i].pid;
+            pos_min = i;
+        }
+        if(shmUsersArray[i].budget > max){
+            max = shmUsersArray[i].budget;
+            pid_max = shmUsersArray[i].pid;
+            pos_max = i;
+        }
+    }
+    printf("Poorest:\n");
+    printf("\tPID:%d\n", pid_min);
+    printf("\tBudget: %d\n\n", min);
+    printf("Richest:\n");
+    printf("\tPID:%d\n", pid_max);
+    printf("\tBudget: %d\n\n", max);
+    endReadFromShm(semUsers);
+}
+
+/* Prints all nodes' info */
+void print_all_nodes()
+{
+    int i = 0;
+
+    initReadFromShm(semNodes);
+    printf("\n\n===============NODES==============\n");
+    for(i = 0; i < conf[SO_NODES_NUM]; i++){
+        printf("\tPID:%d\n", shmNodesArray[i].pid);
+        printf("\tReward: %d\n", shmNodesArray[i].reward);
+        if(is_terminating)
+            printf("\tUnprocessed transactions: %d\n\n", shmNodesArray[i].unproc_trans);
+        else
+            printf("\n");
+    }
+    endReadFromShm(semNodes);
+}
+
+/* Prints the richest and poorest nodes */
+void print_most_relevant_nodes()
+{
+    int i = 0;
+    int pos_min = 0;
+    int pos_max = 0;
+    pid_t pid_min;
+    pid_t pid_max;
+    int min = INT_MAX;
+    int max = INT_MIN;
+
+    initReadFromShm(semUsers);
+    printf("\n\n===============RICHEST & POOREST NODES==============\n");
+    for(i = 0; i < conf[SO_NODES_NUM]; i++){
+        if(shmNodesArray[i].reward < min){
+            min = shmNodesArray[i].reward;
+            pid_min = shmNodesArray[i].pid;
+            pos_min = i;
+        }
+        if(shmNodesArray[i].reward > max){
+            max = shmNodesArray[i].reward;
+            pid_max = shmNodesArray[i].pid;
+            pos_max = i;
+        }
+    }
+    printf("Poorest:\n");
+    printf("\tPID:%d\n", pid_min);
+    printf("\tBudget: %d\n\n", min);
+    printf("Richest:\n");
+    printf("\tPID:%d\n", pid_max);
+    printf("\tBudget: %d\n\n", max);
+    endReadFromShm(semUsers);
+}
+
 
 /* -------------------- SIGNAL HANDLERS -------------------- */
 /* SIGINT and SIGTERM handlers */
 void sigterm_handler(int signum) 
 {
+    /* Reason (4) for termination: Interrupt signal */
     if(!is_terminating){
         printf("[INFO] Ricevuto il segnale %s, arresto la simulazione\n",
                 strsignal(signum));
         is_terminating = 1;
+        term_reason = 4;
         clean_end();
     }
 }
@@ -583,9 +688,8 @@ void sigusr1_handler(int signum)
 {
     /* Reason (1) for termination: The blockchain is full */
     if(!is_terminating){
-        printf("[INFO] Ending simulation: The blockchain is full -> [%d/%ld]\n", 
-                *block_number, SO_REGISTRY_SIZE);
         is_terminating = 1;
+        term_reason = 1;
         clean_end();
     }
 }
@@ -595,9 +699,8 @@ void sigalrm_handler(int signum)
 {
     /* Reason (2) for termination: Expired SO_SIM_SEC timer */
     if(!is_terminating){
-        printf("[INFO] Ending simulation: The execution lasted SO_SIM_SEC=%ld seconds.\n",
-                conf[SO_SIM_SEC]);
         is_terminating = 1;
+        term_reason = 2;
         clean_end();
     }
 }
@@ -605,13 +708,15 @@ void sigalrm_handler(int signum)
 /* Received when a child process dies */
 void sigchld_handler(int signum)
 {
-    /* Only user child processes can die */
+    /* Only user child processes can die before the end */
     remaining_users--;
+    if(!is_terminating)
+        early_deaths++;
     if(remaining_users == 0){
         /* Reason (3) for termination: All the users stopped their execution */
         if(!is_terminating){
-            MSG_INFO2("Ending simulation: No more active users.");
             is_terminating = 1;
+            term_reason = 3;
             clean_end();
         }
     }
@@ -620,12 +725,11 @@ void sigchld_handler(int signum)
 /* Received when the message queue size is too big without root privileges */
 void sigusr2_handler(int signum)
 {
-    /* Reason (4) for termination: The MAX size of the message queue
+    /* Reason (5) for termination: The MAX size of the message queue
         must be incremented by hand with root privileges. */
     if(!is_terminating){
-        MSG_ERR("msg_queue_size, the transaction pool is bigger than the maximum msgqueue size.");
-		MSG_INFO2("\tYou should change the MSGMNB kernel info with root privileges.");
         is_terminating = 1;
+        term_reason = 5;
         clean_end();
     }
 }
@@ -660,7 +764,9 @@ void send_kill_signals()
         for(i = 0; i < conf[SO_NODES_NUM]; i++) {
             /* if the Node is still alive, send the SIGINT signal */
             if(!kill(shmNodesArray[i].pid, 0)) {
+#ifdef DEBUG
                 printf("[INFO] killing node %d...\n", shmNodesArray[i].pid);
+#endif
                 kill(shmNodesArray[i].pid, SIGINT);
             }
         }
