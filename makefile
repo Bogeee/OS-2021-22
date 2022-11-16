@@ -75,3 +75,4 @@ run: all
 check_folders: 
 	mkdir -p build
 	mkdir -p bin
+	mkdir -p out
