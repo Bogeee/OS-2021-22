@@ -126,14 +126,14 @@ int main()
 				shmNodesArray[my_index].reward = reward_budget;
 				endWriteInShm(semNodes);
 
-				unblock_signals(2, SIGINT, SIGTERM);
-				
 				/* we can start writing another block */
 				count = 0;
+
+				unblock_signals(2, SIGINT, SIGTERM);
 			}
 		}
 
-		/* now error handling */
+		/* Error handling */
 		if (errno == EINTR) {
 			fprintf(stderr, 
 					"node.main(%d): interrupted by a signal while waiting for a message "
@@ -212,7 +212,7 @@ void init_conf()
 /* Accessing the other shared memory segments and attaching */
 void init_sharedmem()
 {
-    shmNodes = shmget(SHM_NODE_KEY, sizeof(node) * conf[SO_NODES_NUM], 0666);
+    shmNodes = shmget(SHM_NODE_KEY, sizeof(node) * conf[SO_NODES_NUM], 0600);
 	if (shmNodes == -1){
 		MSG_ERR("node.init(): shmNodes, error while creating the shared memory segment.");
         perror("\tshmNodes ");
@@ -221,7 +221,7 @@ void init_sharedmem()
 	shmNodesArray = (node *)shmat(shmNodes, NULL, 0);
 
 	/* Accessing shmem segment for the libro mastro's block number */
-    shmBlockNumber = shmget(SHM_BLOCK_NUMBER, sizeof(unsigned int), 0666);
+    shmBlockNumber = shmget(SHM_BLOCK_NUMBER, sizeof(unsigned int), 0600);
     if (shmBlockNumber == -1){
 		MSG_ERR("node.init(): shmBlockNumber, error while creating the shared memory segment.");
         perror("\tshmBlockNumber ");
@@ -232,7 +232,7 @@ void init_sharedmem()
 	/* Accessing shmem segment for the Libro Mastro */
     shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, 
 							sizeof(block) * SO_REGISTRY_SIZE, 
-							0666);
+							0600);
     if (shmLibroMastro == -1){
 		MSG_ERR("node.init(): shmLibroMastro, error while creating the shared memory segment.");
         perror("\tshmLibroMastro ");
@@ -244,28 +244,28 @@ void init_sharedmem()
 /* Accessing to the semaphores for the shared memory */
 void init_semaphores()
 {
-	semNodes = semget(SEM_NODE_KEY, 3, 0666);
+	semNodes = semget(SEM_NODE_KEY, 3, 0600);
 	if(semNodes == -1){
 		MSG_ERR("node.init(): semNodes, error while getting the semaphore.");
         perror("\tsemNodes ");
 		shutdown(EXIT_FAILURE);
 	}
 
-	semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, 0666);
+	semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, 0600);
 	if(semBlockNumber == -1){
 		MSG_ERR("node.init(): semBlockNumber, error while getting the semaphore.");
         perror("\tsemBlockNumber ");
 		shutdown(EXIT_FAILURE);
 	}
 
-	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
+	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0600);
     if(semLibroMastro == -1){
 		MSG_ERR("node.init(): semLibroMastro, error while getting the semaphore.");
         perror("\tsemLibroMastro ");
 		shutdown(EXIT_FAILURE);
 	}
 
-	semSimulation = semget(SEM_SIM_KEY, 1, 0666);
+	semSimulation = semget(SEM_SIM_KEY, 1, 0600);
     if(semSimulation == -1){
 		MSG_ERR("node.init(): semSimulation, error while getting the semaphore.");
         perror("\tsemSimulation ");
@@ -279,7 +279,7 @@ void init_msgqueue()
 	struct msqid_ds msg_params;
 	msglen_t msg_max_size_no_root;
 
-	myTransactionsMsg = msgget(ftok(FTOK_PATHNAME_NODE, my_pid), 0666);
+	myTransactionsMsg = msgget(ftok(FTOK_PATHNAME_NODE, my_pid), 0600);
     if(myTransactionsMsg == -1){
 		MSG_ERR("node.init(): myTransitionsMsg, error while getting the message queue.");
         perror("\tmyTransitionsMsg ");
@@ -321,29 +321,25 @@ void shutdown(int status)
 {
     /* Rimozione IPC */
     /* detach the shmem for the nodes Array */
-    shmdt((void *)shmNodesArray);
-    if(shmNodesArray == (void *) -1){
+    if(shmdt((void *)shmNodesArray) == -1){
         MSG_ERR("node.shutdown(): shmNodesArray, error while detaching "
                 "the shmNodesArray shmem segment.");
 	}
 
 	/* detach the shmem for the libro mastro */
-    shmdt((void *)libroMastroArray);
-    if(libroMastroArray == (void *) -1){
+    if(shmdt((void *)libroMastroArray) == -1){
         MSG_ERR("node.shutdown(): libroMastroArray, error while detaching "
                 "the libroMastroArray shmem segment.");
 	}
 
     /* detach the shmem for the last block number */
-    shmdt((void *)block_number);
-    if(block_number == (void *) -1){
+    if(shmdt((void *)block_number) == -1){
         MSG_ERR("node.shutdown(): block_number, error while detaching "
                 "the block_number shmem segment.");
 	}
 
 	/* detach the shmem for the configuration */
-    shmdt((void *)conf);
-    if(conf == (void *) -1){
+    if(shmdt((void *)conf) == -1){
         MSG_ERR("node.shutdown(): conf, error while detaching "
                 "the conf shmem segment.");
 	}

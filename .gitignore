@@ -11,5 +11,8 @@ NOTES.md
 # core dump, for debugging 
 core
 
-# output file at the end of the simulations
+# blockchain file written at the end of the simulation
 out/blockchain
+
+# IDs of IPC objects
+out/ipc_ids

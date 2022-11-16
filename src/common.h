@@ -54,6 +54,8 @@
 
 #define TRANS_REWARD_SENDER -1
 
+#define IPC_IDS_FILENAME "./out/ipc_ids"
+
 union semun
 {
     int val;

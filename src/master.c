@@ -30,6 +30,7 @@ void init();
 void init_conf();
 void init_semaphores();
 void init_sharedmem();
+void wr_ids_to_file(char mode);
 void init_sighandlers();
 void get_configuration(unsigned long *conf);
 void users_generation();
@@ -104,6 +105,9 @@ int main (int argc, char ** argv)
     nodes_generated = 1;
     /* For statistical purposes */
     remaining_nodes = conf[SO_NODES_NUM];
+
+    /* Write msgqueue IDs */
+    wr_ids_to_file('a');
     
     users_generation();
     users_generated = 1;
@@ -170,11 +174,19 @@ void init()
     init_semaphores();
 	init_sharedmem();
 
+    /* Write shmem and semaphore IDs */
+    wr_ids_to_file('w');
     /* 
      * Message queues are created in nodes_generation(),
      * this is just the array of Msg queue IDs
      */
     msgTransactions = (int*) malloc(conf[SO_NODES_NUM] * sizeof(int));
+    if(msgTransactions == NULL){
+        MSG_ERR("master.init(): msgTransactions, error while allocating "
+                "memory for msgqueue IDs");
+        perror("\tmsgTransactions: ");
+        shutdown(EXIT_FAILURE);
+    }
     
     /* Initializes seed for the random number generation */ 
     srand(getpid()+getppid());
@@ -186,7 +198,7 @@ void init_conf()
     /* Creating the shared memory segment */
     shmConfig = shmget( SHM_ENV_KEY, 
                         sizeof(unsigned long) * N_RUNTIME_CONF_VALUES, 
-                        IPC_CREAT | IPC_EXCL | 0666);
+                        IPC_CREAT | IPC_EXCL | 0600);
     if (shmConfig == -1){
         MSG_ERR("master.init(): shmConfig, error while creating the shared memory segment.");
         perror("\tshmConfig");
@@ -194,6 +206,11 @@ void init_conf()
     }
 
     conf = shmat(shmConfig, NULL, 0);
+    if(conf == (void *) -1){
+        MSG_ERR("master.init(): shmConfig, error while creating the shared memory segment.");
+        perror("\tshmConfig");
+        shutdown(EXIT_FAILURE);
+    }
 
     /* Gets conf from Env variables, Writes configuration to shared memory */
     get_configuration(conf);
@@ -202,35 +219,35 @@ void init_conf()
 /* Creates the semaphores and initializes them */
 void init_semaphores()
 {
-    semUsers = semget(SEM_USER_KEY, 3, IPC_CREAT | 0666);
+    semUsers = semget(SEM_USER_KEY, 3, IPC_CREAT | 0600);
     if(semUsers == -1){
 		MSG_ERR("master.init(): semUsers, error while creating the semaphore.");
         perror("\tsemUsers");
 		shutdown(EXIT_FAILURE);
 	}
 
-	semNodes = semget(SEM_NODE_KEY, 3, IPC_CREAT | 0666);
+	semNodes = semget(SEM_NODE_KEY, 3, IPC_CREAT | 0600);
     if(semNodes == -1){
 		MSG_ERR("master.init(): semNodes, error while creating the semaphore.");
         perror("\tsemNodes");
 		shutdown(EXIT_FAILURE);
 	}
 
-	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0666);
+	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0600);
     if(semLibroMastro == -1){
 		MSG_ERR("master.init(): semLibroMastro, error while creating the semaphore.");
         perror("\tsemLibroMastro");
 		shutdown(EXIT_FAILURE);
 	}
 
-    semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, IPC_CREAT | 0666);
+    semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, IPC_CREAT | 0600);
     if(semBlockNumber == -1){
 		MSG_ERR("master.init(): semBlockNumber, error while creating the semaphore.");
         perror("\tsemBlockNumber");
 		shutdown(EXIT_FAILURE);
 	}
 
-    semSimulation = semget(SEM_SIM_KEY, 1, IPC_CREAT | 0666);
+    semSimulation = semget(SEM_SIM_KEY, 1, IPC_CREAT | 0600);
     if(semSimulation == -1){
 		MSG_ERR("master.init(): semSimulation, error while creating the semaphore.");
         perror("\tsemSimulazione");
@@ -261,7 +278,7 @@ void init_sharedmem()
     /* Creating shmem segment for Users */
     shmUsers = shmget(  SHM_USER_KEY, 
                         sizeof(user) * conf[SO_USERS_NUM], 
-                        IPC_CREAT | IPC_EXCL | 0666);
+                        IPC_CREAT | IPC_EXCL | 0600);
     if (shmUsers == -1){
 		MSG_ERR("master.init(): shmUsers, error while creating the shared memory segment.");
         perror("\tshmUsers");
@@ -272,7 +289,7 @@ void init_sharedmem()
     /* Creating shmem segment for Nodes */
     shmNodes = shmget(  SHM_NODE_KEY, 
                         sizeof(node) * conf[SO_NODES_NUM], 
-                        IPC_CREAT | IPC_EXCL | 0666);
+                        IPC_CREAT | IPC_EXCL | 0600);
     if (shmNodes == -1){
 		MSG_ERR("master.init(): shmNodes, error while creating the shared memory segment.");
         perror("\tshmNodes");
@@ -283,7 +300,7 @@ void init_sharedmem()
     /* Creating shmem segment for the Libro Mastro */
     shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, 
                             sizeof(block) * SO_REGISTRY_SIZE,
-                            IPC_CREAT | IPC_EXCL | 0666);
+                            IPC_CREAT | IPC_EXCL | 0600);
     if (shmLibroMastro == -1){
 		MSG_ERR("master.init(): shmLibroMastro, error while creating the shared memory segment.");
         perror("\tshmLibroMastro");
@@ -294,7 +311,7 @@ void init_sharedmem()
     /* Creating shmem segment for the libro mastro's block number */
     shmBlockNumber = shmget(SHM_BLOCK_NUMBER, 
                             sizeof(unsigned int), 
-                            IPC_CREAT | IPC_EXCL | 0666);
+                            IPC_CREAT | IPC_EXCL | 0600);
     if (shmBlockNumber == -1){
 		MSG_ERR("master.init(): shmBlockNumber, error while creating the shared memory segment.");
         perror("\tshmBlockNumber");
@@ -303,6 +320,39 @@ void init_sharedmem()
     /* Block number initialization */
     block_number = (unsigned int *)shmat(shmBlockNumber, NULL, 0);
     *block_number = 0;
+}
+
+/* Write ipc ids to file */
+void wr_ids_to_file(char mode)
+{
+    FILE *fp_ids;
+    int i = 0;
+
+    if(mode == 'w')
+        fp_ids = fopen(IPC_IDS_FILENAME, "w");
+    else
+        fp_ids = fopen(IPC_IDS_FILENAME, "a");
+
+    if(mode == 'w'){
+        fprintf(fp_ids, "SEMAPHORES\n");
+        fprintf(fp_ids, "\tsemUsers: %d\n", semUsers);
+        fprintf(fp_ids, "\tsemNodes: %d\n", semNodes);
+        fprintf(fp_ids, "\tsemLibroMastro: %d\n", semLibroMastro);
+        fprintf(fp_ids, "\tsemBlockNumber: %d\n", semBlockNumber);
+        fprintf(fp_ids, "\tsemSimulation: %d\n\n", semSimulation);
+        fprintf(fp_ids, "SHARED MEMORY\n");
+        fprintf(fp_ids, "\tshmConfig: %d\n", shmConfig);
+        fprintf(fp_ids, "\tshmUsers: %d\n", shmUsers);
+        fprintf(fp_ids, "\tshmNodes: %d\n", shmNodes);
+        fprintf(fp_ids, "\tshmLibroMastro: %d\n", shmLibroMastro);
+        fprintf(fp_ids, "\tshmBlockNumber: %d\n\n", shmBlockNumber);
+        fprintf(fp_ids, "MESSAGE QUEUES\n");
+    } else {
+        for(i = 0; i < conf[SO_NODES_NUM]; i++)
+            fprintf(fp_ids, "\tmsgQueue(%d): %d\n", i, msgTransactions[i]);
+    }
+
+    fclose(fp_ids);
 }
 
 /* Setting the signal handlers */
@@ -329,11 +379,11 @@ void get_configuration(unsigned long * conf)
 	/* Check compile time parameters */
 #ifndef SO_BLOCK_SIZE
 	MSG_ERR("SO_BLOCK_SIZE is not defined!");
-	exit(EXIT_FAILURE);
+	shutdown(EXIT_FAILURE);
 #endif
 #ifndef SO_REGISTRY_SIZE
 	MSG_ERR("SO_REGISTRY_SIZE is not defined!");
-	exit(EXIT_FAILURE);
+	shutdown(EXIT_FAILURE);
 #endif
 #ifdef DEBUG
 	printf("---------------------------------------------------\n");
@@ -357,32 +407,32 @@ void get_configuration(unsigned long * conf)
                 || env_var_val == chk_strtol_err) {
 				fprintf(stderr, "[%sERROR%s] Could not convert env variable %s to an unsigned long\n",
 						COLOR_RED, COLOR_FLUSH, conf_names[i]);
-				exit(EXIT_FAILURE);
+				shutdown(EXIT_FAILURE);
 			}
 			/* check valid number */
 			if(i == SO_MAX_TRANS_GEN_NSEC && conf[SO_MAX_TRANS_GEN_NSEC] 
                 < conf[SO_MIN_TRANS_GEN_NSEC]) {
 				MSG_ERR("SO_MAX_TRANS_GEN_NSEC is lower than SO_MIN_TRANS_GEN_NSEC!");
-				exit(EXIT_FAILURE);
+				shutdown(EXIT_FAILURE);
 			} else if(i == SO_MAX_TRANS_PROC_NSEC 
                         && conf[SO_MAX_TRANS_PROC_NSEC] 
                         < conf[SO_MIN_TRANS_PROC_NSEC]) {
 				MSG_ERR("SO_MAX_TRANS_PROC_NSEC is lower than SO_MIN_TRANS_PROC_NSEC!");
-				exit(EXIT_FAILURE);
+				shutdown(EXIT_FAILURE);
 			} else if(i == SO_TP_SIZE && conf[SO_TP_SIZE] <= SO_BLOCK_SIZE) {
 				MSG_ERR("SO_TP_SIZE is not bigger than SO_BLOCK_SIZE!");
-				exit(EXIT_FAILURE);
+				shutdown(EXIT_FAILURE);
 			} else if(i == SO_REWARD && (conf[SO_REWARD] < 0 
                         || conf[SO_REWARD] > 100)) {
 				MSG_ERR("SO_REWARD is out range [0-100]!");
-				exit(EXIT_FAILURE);
+				shutdown(EXIT_FAILURE);
 			}
 		} else {
 			fprintf(stderr, 
                     "[%sERROR%s] Undefined environment variable %s. Make sure to load env. variables first!\n"
                     "        Example: source cfg/custom.cfg\n",
                     COLOR_RED, COLOR_FLUSH, conf_names[i]);
-			exit(EXIT_FAILURE);
+			shutdown(EXIT_FAILURE);
 		}
 	}
 #ifdef DEBUG
@@ -460,11 +510,24 @@ void nodes_generation()
     int i=0, j=0, k=0;
     struct msqid_ds msg_params;     /* Used to check system limits */
 	msglen_t msg_max_size_no_root;  /* System max msgqueue size */
+    FILE *fp_ids;                   /* Write msgqueues to file */
     int test_msgqueue = -1;
 
-	test_msgqueue = msgget(ftok(FTOK_PATHNAME_NODE, getpid()), IPC_CREAT | 0666);
-    msgctl(test_msgqueue, IPC_STAT, &msg_params);
-	msg_max_size_no_root = msg_params.msg_qbytes;
+	test_msgqueue = msgget(ftok("./bin/master", getpid()),
+                           IPC_CREAT | IPC_EXCL | 0600);
+    if(test_msgqueue == -1){
+        MSG_ERR("master.nodes_generation(): test_msgqueue, error while creating the message queue.");
+        perror("\ttest_msgqueue ");
+        shutdown(EXIT_FAILURE);
+    }
+
+    if(msgctl(test_msgqueue, IPC_STAT, &msg_params) == 0){
+	    msg_max_size_no_root = msg_params.msg_qbytes;
+    } else {
+        MSG_ERR("master.nodes_generation(): test_msgqueue, error while getting the system msgqueue settings.");
+        perror("\ttest_msgqueue ");
+        shutdown(EXIT_FAILURE);
+    }
 
 	if((sizeof(msgbuf) * conf[SO_TP_SIZE]) > msg_max_size_no_root){
 		MSG_ERR("master.nodes_generation(): msg_queue_size, the transaction "
@@ -474,7 +537,6 @@ void nodes_generation()
 		shutdown(EXIT_FAILURE);
 	} 
     msgctl(test_msgqueue, IPC_RMID, NULL);
-
 
     for (i = 0; i < conf[SO_NODES_NUM]; i++){
         child_pid = fork();
@@ -501,10 +563,11 @@ void nodes_generation()
             unblock_signals(2, SIGINT, SIGTERM);
 
             msgTransactions[i] = msgget(ftok(FTOK_PATHNAME_NODE, child_pid), 
-                                        IPC_CREAT | IPC_EXCL | 0666);
-            if(msgTransactions == (void *) -1){
+                                        IPC_CREAT | IPC_EXCL | 0600);
+            if(msgTransactions[i] == -1){
                 MSG_ERR("master.nodes_generation(): msgTransactions, error while creating the message queue.");
                 perror("\tmsgTransactions ");
+                fclose(fp_ids);
                 shutdown(EXIT_FAILURE);
             }
 
@@ -693,7 +756,6 @@ void print_most_relevant_nodes()
     printf("\tReward: %d\n\n", max);
 }
 
-
 /* -------------------- SIGNAL HANDLERS -------------------- */
 /* SIGINT and SIGTERM handlers */
 void sigterm_handler(int signum) 
@@ -797,44 +859,45 @@ void shutdown(int status)
     int i = 0;
 
     /* detach the shmem for the last block number */
-    shmdt((void *)block_number);
-    if(block_number == (void *) -1){
+    if(shmBlockNumber != -1 && shmdt((void *)block_number) == -1){
         MSG_ERR("master.shutdown(): block_number, error while detaching "
                 "the block_number shmem segment.");
+        perror("\tblock_number shmdt ");
 	}
 
     /* detach the shmem for the shmUsersArray */
-    shmdt((void *)shmUsersArray);
-    if(shmUsersArray == (void *) -1){
+    if(shmUsers != -1 && shmdt((void *)shmUsersArray) == -1){
         MSG_ERR("master.shutdown(): shmUsersArray, error while detaching "
                 "the shmUsersArray shmem segment.");
+        perror("\tshmUsersArray shmdt ");
 	}
 
     /* detach the shmem for the shmNodesArray */
-    shmdt((void *)shmNodesArray);
-    if(shmNodesArray == (void *) -1){
+    if(shmNodes != -1 && shmdt((void *)shmNodesArray) == -1){
         MSG_ERR("master.shutdown(): shmNodesArray, error while detaching "
                 "the shmNodesArray shmem segment.");
+        perror("\tshmNodesArray shmdt ");
 	}
 
     /* detach the shmem for the Libro Mastro */
-    shmdt((void *)libroMastroArray);
-    if(libroMastroArray == (void *) -1){
+    if(shmLibroMastro != -1 && shmdt((void *)libroMastroArray) == -1){
         MSG_ERR("master.shutdown(): libroMastroArray, error while detaching "
                 "the libroMastroArray shmem segment.");
+        perror("\tlibroMastroArray shmdt ");
 	}
 
-	/* Rimozione IPC */
+	/* Removing shmem segments */
 	shmctl(shmUsers, IPC_RMID, NULL);
 	shmctl(shmNodes, IPC_RMID, NULL);
-	shmctl(shmLibroMastro, IPC_RMID, NULL);
-	shmctl(shmBlockNumber, IPC_RMID, NULL);
+    shmctl(shmLibroMastro, IPC_RMID, NULL);
+    shmctl(shmBlockNumber, IPC_RMID, NULL);
 
+	/* Removing semaphores */
 	semctl(semUsers, 0, IPC_RMID, 0);
-	semctl(semNodes, 0, IPC_RMID, 0);
-	semctl(semLibroMastro, 0, IPC_RMID, 0);
-	semctl(semSimulation, 0, IPC_RMID, 0);
-	semctl(semBlockNumber, 0, IPC_RMID, 0);
+    semctl(semNodes, 0, IPC_RMID, 0);
+    semctl(semLibroMastro, 0, IPC_RMID, 0);
+    semctl(semSimulation, 0, IPC_RMID, 0);
+    semctl(semBlockNumber, 0, IPC_RMID, 0);
 
     /* Removing Msg Queues */
     if(nodes_generated){
@@ -844,12 +907,12 @@ void shutdown(int status)
     }
 
     /* detach the shmem of the conf */
-    shmdt((void *)conf);
-    if(conf == (void *) -1){
+    if(shmdt((void *)conf) == -1){
         MSG_ERR("master.shutdown(): conf, error while detaching "
-                "the configuration shmem segment.");
+                "the conf shmem segment.");
+        perror("\tconf shmdt ");
 	}
-	shmctl(shmConfig, IPC_RMID, NULL);
+    shmctl(shmConfig, IPC_RMID, NULL);
 
     exit(status);
 }
