@@ -62,13 +62,6 @@ Otherwise, you have to manually append the contents of a configuration file that
 make run
 ```
 
-## Implementation choices
-
-### Getting the configuration parameters
-All the runtime configuration parameters are retrieved from the environment variables, which must be loaded before running the master program.
-
-The function responsible for this is `get_configuration()` in the `master.c` file.
-
 ## Authors
 
 * [Filippo Bogetti](https://bogeee.github.io/)
@@ -76,13 +69,9 @@ The function responsible for this is `get_configuration()` in the `master.c` fil
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE.md file for details
+This project is licensed under the MIT License - see the [LICENSE.md](./LICENSE.md) file for details
 
 ## Acknowledgments
-<!--
-I love to build projects in C but my passion is to break programs. In this project I'll try my best to follow the SEI CERT C Coding Standard which defines the best practices to avoid or mitigate all sorts of vulnerabilities such as Stack or Heap based BOF, UAF, memory corruption and others.
-
-* [SEI CERT C Coding Standard](https://wiki.sei.cmu.edu/confluence/display/c/SEI+CERT+C+Coding+Standard)-->
 
 We are coding in C, so there is no reason why we shouldn't follow the Linux Kernel coding style. 
 

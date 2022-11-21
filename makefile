@@ -67,7 +67,7 @@ bin/user: build/user.o build/common.o $(COMMON_DEPS)
 	$(CC) $(CFLAGS) $(PROJ_CONF) -o bin/user build/user.o build/common.o $(LDFLAGS)
 
 clean:
-	rm -f build/* bin/*
+	rm -f build/* bin/* out/blockchain
 
 run: all
 	./bin/master

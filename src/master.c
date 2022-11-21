@@ -16,7 +16,7 @@
 #define PRINT_USEFUL_STATS 0
 
 /* only used by get_configuration() as env. variable names */
-char conf_names[N_RUNTIME_CONF_VALUES][22+1] = {
+const char conf_names[N_RUNTIME_CONF_VALUES][22+1] = {
 	"SO_USERS_NUM", "SO_NODES_NUM", "SO_BUDGET_INIT", "SO_REWARD",
 	"SO_MIN_TRANS_GEN_NSEC", "SO_MAX_TRANS_GEN_NSEC", "SO_RETRY",
 	"SO_TP_SIZE", "SO_MIN_TRANS_PROC_NSEC", "SO_MAX_TRANS_PROC_NSEC", 
@@ -97,7 +97,7 @@ int main (int argc, char ** argv)
     int nanofail = 0;
 
     /* (1): Get simulation configuration, initialize IPC Objects */
-    set_handler(SIGINT, sigterm_handler);
+    init_sighandlers();
     init();
 
     /* (2): Generate child processes */
@@ -119,7 +119,6 @@ int main (int argc, char ** argv)
      *      termination conditions.
      *      - Print stats every second. 
      */
-    init_sighandlers();
 
     alarm(conf[SO_SIM_SEC]);
     while (1){
@@ -130,10 +129,13 @@ int main (int argc, char ** argv)
             req.tv_sec = 1;
             req.tv_nsec = 0;
         }
-        if(nanosleep(&req, &rem) < 0)
+        if(nanosleep(&req, &rem) < 0){
             nanofail = 1;
-        else
+        } else {
+        	block_signals(4, SIGINT, SIGTERM, SIGUSR1, SIGALRM);
             print_stats(PRINT_USEFUL_STATS);
+        	unblock_signals(4, SIGINT, SIGTERM, SIGUSR1, SIGALRM);
+        }
     }
 
     /*
@@ -795,7 +797,6 @@ void sigalrm_handler(int signum)
 /* Received when a child process dies */
 void sigchld_handler(int signum)
 {
-    struct timespec t;
     /* Only user child processes can die before the end */
     remaining_users--;
     if(!is_terminating){
@@ -922,9 +923,6 @@ void shutdown(int status)
 void clean_end()
 {
     send_kill_signals();
-
-    /* Attesa che tutti i figli siano conclusi */
-    while (wait(NULL) != -1);
 
     print_stats(FORCE_PRINT_STATS);
     shutdown(EXIT_SUCCESS);

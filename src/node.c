@@ -178,12 +178,14 @@ void init()
 	/* Master wants to kill the node */
 	set_handler(SIGINT, sigint_handler);
 
+	block_signals(2, SIGINT, SIGTERM);
 	initReadFromShm(semNodes);
 	i = 0;
 	while(shmNodesArray[i].pid != my_pid)
 		i++;
 	my_index = i;
 	endReadFromShm(semNodes);
+	unblock_signals(2, SIGINT, SIGTERM);
 
 	/* Waiting that the other nodes are ready and active */
 	reserveSem(semSimulation, 0);
@@ -258,7 +260,7 @@ void init_semaphores()
 		shutdown(EXIT_FAILURE);
 	}
 
-	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, IPC_CREAT | 0600);
+	semLibroMastro = semget(SEM_LIBROMASTRO_KEY, 3, 0600);
     if(semLibroMastro == -1){
 		MSG_ERR("node.init(): semLibroMastro, error while getting the semaphore.");
         perror("\tsemLibroMastro ");
@@ -310,7 +312,6 @@ void sigint_handler()
 	initWriteInShm(semNodes);
 	shmNodesArray[my_index].unproc_trans = unproc_trans + count;
 	endWriteInShm(semNodes);
-	unblock_signals(2, SIGINT, SIGTERM);
 	
 	shutdown(EXIT_SUCCESS);
 }
@@ -348,11 +349,6 @@ void shutdown(int status)
     shmctl(shmLibroMastro, IPC_RMID, NULL);
     shmctl(shmBlockNumber, IPC_RMID, NULL);
     shmctl(shmConfig, IPC_RMID, NULL);
-
-    semctl(semNodes, 0, IPC_RMID, 0);
-    semctl(semLibroMastro, 0, IPC_RMID, 0);
-	semctl(semBlockNumber, 0, IPC_RMID, 0);
-	semctl(semSimulation, 0, IPC_RMID, 0);
 
 	msgctl(myTransactionsMsg, IPC_RMID, NULL);
 

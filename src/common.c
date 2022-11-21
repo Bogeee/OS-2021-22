@@ -41,16 +41,6 @@ int releaseSem(int semId, int semNum)
     return semop(semId, &sops, 1);
 }
 
-/* Semaphore in wait state */
-int waitSem(int semId, int semNum)
-{
-    struct sembuf sops;
-    sops.sem_num = semNum;
-    sops.sem_op = 0;
-    sops.sem_flg = 0;
-    return semop(semId, &sops, 1);
-}
-
 /* Init simulation semaphore */
 int initSemSimulation(int semId, int semNum, int usersNum, int nodesNum)
 {

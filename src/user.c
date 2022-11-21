@@ -119,12 +119,14 @@ void init()
     set_handler(SIGUSR1, sigusr1_handler);
     set_handler(SIGINT,  sigint_handler);
 
+	block_signals(3, SIGINT, SIGTERM, SIGUSR1);
     initReadFromShm(semUsers);
     i = 0;
     while(shmUsersArray[i].pid != my_pid)
         i++;
     my_index = i;
     endReadFromShm(semUsers);
+	unblock_signals(3, SIGINT, SIGTERM, SIGUSR1);
 
 	/* Waiting that the other nodes are ready and active */
 	reserveSem(semSimulation, 0);
@@ -162,7 +164,8 @@ void init_sharedmem()
     }
 	shmUsersArray = (user *)shmat(shmUsers, NULL, 0);
 
-    shmNodes = shmget(SHM_NODE_KEY, sizeof(node) * conf[SO_NODES_NUM], 0600);
+    shmNodes = shmget(SHM_NODE_KEY, sizeof(node) * conf[SO_NODES_NUM], 
+                      SHM_RDONLY);
     if (shmNodes == -1)
     {
         MSG_ERR("user.init(): shmNodes, error while creating the shared memory segment.");
@@ -184,7 +187,7 @@ void init_sharedmem()
 
     shmLibroMastro = shmget(SHM_LIBROMASTRO_KEY, 
                             sizeof(block) * SO_REGISTRY_SIZE, 
-                            SHM_RDONLY | 0600);
+                            SHM_RDONLY);
     if (shmLibroMastro == -1)
     {
         MSG_ERR("user.init(): shmLibroMastro, error while creating the shared memory segment.");
@@ -261,6 +264,7 @@ int createTransaction()
      * if the user cannot find an alive receiver after 5 tries, it
      * counts as a transaction failure. 
      */
+	block_signals(3, SIGINT, SIGTERM, SIGUSR1);
     initReadFromShm(semUsers);
     do{
         randomReceiverId = randomNum(0, conf[SO_USERS_NUM] - 1);
@@ -299,6 +303,7 @@ int createTransaction()
 
     msg.trans = newTr;
     msg.mtype = 1;
+	unblock_signals(3, SIGINT, SIGTERM, SIGUSR1);
 
     if(msgsnd(msgTrans, &msg, sizeof(msgbuf), IPC_NOWAIT) < 0)
     {
@@ -326,6 +331,7 @@ void getBilancio()
 
     bilancio = conf[SO_BUDGET_INIT];
 
+	block_signals(3, SIGINT, SIGTERM, SIGUSR1);
     initReadFromShm(semBlockNumber);
     initReadFromShm(semLibroMastro);
     for (i = 0; i < *block_number; i++)
@@ -344,6 +350,7 @@ void getBilancio()
     }
     endReadFromShm(semLibroMastro);
     endReadFromShm(semBlockNumber);
+	unblock_signals(3, SIGINT, SIGTERM, SIGUSR1);
 
     head = pendingList;
     while(head != NULL){
@@ -351,11 +358,11 @@ void getBilancio()
         head = head->next;
     }
 
-    block_signals(2, SIGINT, SIGTERM, SIGUSR1);
+    block_signals(3, SIGINT, SIGTERM, SIGUSR1);
     initWriteInShm(semUsers);
     shmUsersArray[my_index].budget = bilancio;
     endWriteInShm(semUsers);
-    unblock_signals(2, SIGINT, SIGTERM, SIGUSR1);
+    unblock_signals(3, SIGINT, SIGTERM, SIGUSR1);
 }
 
 /* Add transaction to head */
@@ -441,6 +448,7 @@ void sigint_handler(int signum)
 {
     getBilancio();
 
+    block_signals(3, SIGINT, SIGTERM, SIGUSR1);
     shutdown(EXIT_SUCCESS);
 }
 
@@ -449,13 +457,11 @@ void sigint_handler(int signum)
 void shutdown(int status)
 {
     int i = 0;
-
+    
     /* Setting the flag alive to zero */
-    block_signals(2, SIGINT, SIGTERM, SIGUSR1);
     initWriteInShm(semUsers);
     shmUsersArray[my_index].alive = 0;
     endWriteInShm(semUsers);
-    block_signals(2, SIGINT, SIGTERM);
 
     /* Rimozione IPC */
     /* detach the shmem for the Users array */
@@ -492,12 +498,6 @@ void shutdown(int status)
     shmctl(shmLibroMastro, IPC_RMID, NULL);
     shmctl(shmConfig, IPC_RMID, NULL);
     shmctl(shmBlockNumber, IPC_RMID, NULL);
-
-    semctl(semUsers, 0, IPC_RMID, 0);
-    semctl(semNodes, 0, IPC_RMID, 0);
-    semctl(semLibroMastro, 0, IPC_RMID, 0);
-	semctl(semBlockNumber, 0, IPC_RMID, 0);
-    semctl(semSimulation, 0, IPC_RMID, 0);
 
     freePendingList(pendingList);
     exit(status);

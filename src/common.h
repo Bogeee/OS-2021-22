@@ -49,7 +49,6 @@
 #define SEM_SIM_KEY 82141
 #define SEM_BLOCK_NUMBER 88889
 
-#define MSG_TRANS_KEY 62132
 #define FTOK_PATHNAME_NODE "./bin/node"
 
 #define TRANS_REWARD_SENDER -1
@@ -131,7 +130,6 @@ int initSemAvailable(int, int);
 int initSemInUse(int, int);
 int reserveSem(int, int);
 int releaseSem(int, int);
-int waitSem(int, int);
 int initSemSimulation(int, int, int, int);
 
 /*** Signals Management ***/
