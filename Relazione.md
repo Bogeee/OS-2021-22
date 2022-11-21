@@ -146,7 +146,7 @@ void endWriteInShm(int);
 
 ### Rimozione degli oggetti IPC
 
-Per quanto riguarda i segmenti di **shared memory**, i processi figli fanno la `shmdt()` prima di morire per una condizione d'errore o per la fine della simulazione. Il processo master fa la `shmdt()` seguita dalla rimozione dell'oggetto IPC.
+Per quanto riguarda i segmenti di **shared memory**, i processi figli chiamano la `shmdt()` prima di morire per una condizione d'errore o per la fine della simulazione. Il processo master chiama la `shmdt()` seguita dalla rimozione dell'oggetto IPC.
 
 I **semafori** e le **message queues** vengono rimosse dal processo master al termine della simulazione o in condizioni d'errore.
 
@@ -176,7 +176,7 @@ Il processo `master` utilizza 4 *signal handlers*:
 * **SIGALRM** è gestito dal `sigalrm_handler()`. Questo segnale arriva quando dall'avvio della simulazione sono trascorsi `SO_SIM_SEC` secondi. L'handler permette di terminare la simulazione in modo pulito appena scade il tempo.
 * **SIGCHLD** è gestito dal `sigchld_handler()`. Questo segnale arriva quando uno dei processi figli muore per errore oppure perchè ha terminato l'esecuzione. Se il segnale arriva durante la simulazione, significa che un processo `user` è morto. (Sarebbe più opportuno effettuare un controllo sul *sender* del segnale e vedere se effettivamente si tratta del PID di un utente). I processi nodo possono morire solo se ricevono un `SIGINT` (dal master) alla fine della simulazione oppure se viene rimossa la sua message queue (evento che può avvenire solo dall'esterno). Quando muore uno `user`, se la simulazione non è finita si incrementa la variabile `early_deaths` che indica il numero di utenti morti in modo prematuro.
 
-Il proceesso `user` utilizza 2 *signal handlers*:
+Il processo `user` utilizza 2 *signal handlers*:
 
 * **SIGINT** viene gestito dal `sigint_handler()` che chiama la `getBilancio()` per effettuare un ultimo calcolo del budget per scriverlo in shared memory e poi termina in modo pulito, ovvero chiama la procedura `shutdown()` che fa il detach / la rimozione degli oggetti IPC. Questo segnale viene inviato dal processo master alla fine della simulazione.
 * **SIGUSR1** viene gestito dal `sigusr1_handler()` che scatena, se possibile, la creazione di una transazione. 
@@ -237,7 +237,8 @@ typedef struct
     int reward;
 } transaction;
 
-typedef struct{
+typedef struct
+{
     long mtype;
     transaction trans;
 } msgbuf;
@@ -273,7 +274,7 @@ void addToPendingList(transaction tr);
 void removeFromPendingList(transaction tr);
 void freePendingList();
 ```
-Ogni volta che si calcola il bilancio e si legge dal libro mastro, se si trova una transazione presente nella lista, questa viene rimossa perchè significa che è stata processata dal nodo. Quindi si sommano al bilancio tutte le transazioni che hanno come receiver il PID dell'utente, mentre si tolgono al bilancio tutte le transazioni che hanno come sender il PID dell'utente. In seguito, si tolgono al bilancio calcolato tutte le transazioni pendenti presenti nella lista. Si aggiorna il valore `budget` in shared memory.  
+Ogni volta che si calcola il bilancio e si legge dal libro mastro, se si trova una transazione presente nella lista, questa viene rimossa perchè significa che è stata processata dal nodo. Quindi si sommano al bilancio tutte le transazioni che hanno come receiver il PID dell'utente, mentre si tolgono al bilancio tutte le transazioni che hanno come sender il PID dell'utente. In seguito, si tolgono al bilancio calcolato tutte le transazioni pendenti presenti nella lista. Si aggiorna il valore `budget` in shared memory.
 
 Se il bilancio è maggiore o uguale di 2 si può creare una transazione, altrimenti si incrementa il numero di fallimenti. La transazione creata con `createTransaction()` necessita di un utente destinatario; il ricevitore della transazione può essere solo un utente vivo, per cui si può tentare di estrarre casualmente un utente ancora vivo al massimo 5 volte. Se non si trova, si incrementa il numero di fallimenti.
 
