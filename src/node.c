@@ -253,7 +253,7 @@ void init_semaphores()
 		shutdown(EXIT_FAILURE);
 	}
 
-	semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, 0600);
+	semBlockNumber = semget(SEM_BLOCK_NUMBER, 3, 0600);
 	if(semBlockNumber == -1){
 		MSG_ERR("node.init(): semBlockNumber, error while getting the semaphore.");
         perror("\tsemBlockNumber ");

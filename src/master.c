@@ -242,7 +242,7 @@ void init_semaphores()
 		shutdown(EXIT_FAILURE);
 	}
 
-    semBlockNumber = semget(SEM_BLOCK_NUMBER, 1, IPC_CREAT | 0600);
+    semBlockNumber = semget(SEM_BLOCK_NUMBER, 3, IPC_CREAT | 0600);
     if(semBlockNumber == -1){
 		MSG_ERR("master.init(): semBlockNumber, error while creating the semaphore.");
         perror("\tsemBlockNumber");
@@ -272,6 +272,8 @@ void init_semaphores()
                       conf[SO_NODES_NUM]);
 
     initSemAvailable(semBlockNumber, 0);
+    initSemAvailable(semBlockNumber, 1);
+    initSemInUse(semBlockNumber, 2);
 }
 
 /* Creates the shmem segments */

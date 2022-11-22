@@ -38,6 +38,7 @@ int releaseSem(int semId, int semNum)
     sops.sem_num = semNum;
     sops.sem_op = 1;
     sops.sem_flg = 0;
+    
     return semop(semId, &sops, 1);
 }
 
@@ -144,26 +145,19 @@ struct sigaction set_handler(int sig, void (*func)(int))
  * **/
 void initReadFromShm(int semId)
 {
-    while (semctl(semId, 1, GETVAL, 0) == 0)
-        ;
+    reserveSem(semId, 1);
     releaseSem(semId, 2);
     if (semctl(semId, 2, GETVAL, 0) == 1)
-    {
-        while (semctl(semId, 0, GETVAL, 0) == 0)
-            ;
-    }
+        reserveSem(semId, 0);
     releaseSem(semId, 1);
 }
 
 void endReadFromShm(int semId)
 {
-    while (semctl(semId, 1, GETVAL, 0) == 0)
-        ;
+    reserveSem(semId, 1);
     reserveSem(semId, 2);
     if (semctl(semId, 2, GETVAL, 0) == 0)
-    {
         releaseSem(semId, 0);
-    }
     releaseSem(semId, 1);
 }
 
@@ -174,8 +168,6 @@ void endReadFromShm(int semId)
  * **/
 void initWriteInShm(int semId)
 {
-    while (semctl(semId, 0, GETVAL, 0) == 0)
-        ;
     reserveSem(semId, 0);
 }
 
