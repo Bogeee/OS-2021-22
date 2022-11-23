@@ -111,6 +111,7 @@ int main()
 				if(*block_number == SO_REGISTRY_SIZE){
 					/* send signal to master process */
 					unblock_signals(2, SIGINT, SIGTERM);
+					endWriteInShm(semBlockNumber);
 					kill(getppid(), SIGUSR1);
 					pause();
 				} else {

@@ -352,8 +352,14 @@ void wr_ids_to_file(char mode)
         fprintf(fp_ids, "\tshmBlockNumber: %d\n\n", shmBlockNumber);
         fprintf(fp_ids, "MESSAGE QUEUES\n");
     } else {
-        for(i = 0; i < conf[SO_NODES_NUM]; i++)
-            fprintf(fp_ids, "\tmsgQueue(%d): %d\n", i, msgTransactions[i]);
+        block_signals(2, SIGINT, SIGTERM);
+        initReadFromShm(semNodes);
+        for(i = 0; i < conf[SO_NODES_NUM]; i++){
+            fprintf(fp_ids, "\tmsgQueue key(%d): %x\n", i, 
+                    ftok(FTOK_PATHNAME_NODE, shmNodesArray[i].pid));
+        }
+        endReadFromShm(semNodes);
+        unblock_signals(2, SIGINT, SIGTERM);
     }
 
     fclose(fp_ids);
@@ -514,7 +520,6 @@ void nodes_generation()
     int i=0, j=0, k=0;
     struct msqid_ds msg_params;     /* Used to check system limits */
 	msglen_t msg_max_size_no_root;  /* System max msgqueue size */
-    FILE *fp_ids;                   /* Write msgqueues to file */
     int test_msgqueue = -1;
 
 	test_msgqueue = msgget(ftok("./bin/master", getpid()),
@@ -571,7 +576,6 @@ void nodes_generation()
             if(msgTransactions[i] == -1){
                 MSG_ERR("master.nodes_generation(): msgTransactions, error while creating the message queue.");
                 perror("\tmsgTransactions ");
-                fclose(fp_ids);
                 shutdown(EXIT_FAILURE);
             }
 
