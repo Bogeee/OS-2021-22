@@ -1,6 +1,8 @@
 # os-proj
 
-This is our project for the OS exam 2021/22, details in the pdf file.
+This is our project for the OS exam 2021/22, details in the pdf file. 
+
+We did the **minimum version** because of lack of time, but we got the max score.
 
 ## Getting Started
 
